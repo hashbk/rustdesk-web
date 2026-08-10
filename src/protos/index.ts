@@ -122,7 +122,7 @@ export type PeerInfoT = {
   encoding?: { h264?: boolean; h265?: boolean; vp8?: boolean; av1?: boolean };
 };
 
-export type HashT = { salt: Uint8Array; challenge: Uint8Array };
+export type HashT = { salt: string; challenge: string };
 
 export type VideoFrameT = {
   vp9s?: { frames: { data: Uint8Array; key?: boolean; pts?: number | Long }[] };
