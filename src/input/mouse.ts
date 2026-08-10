@@ -72,18 +72,18 @@ export class MouseAdapter {
     this.opts.send({ mask: mask(MOUSE_TYPE_UP, bit), x, y });
   }
 
-  onWheel(e: WheelEvent, rect: DOMRect): void {
-    const { x } = this.toRemote(e.clientX, e.clientY, rect);
-    const step = 40;
-    const ticksX = Math.round(e.deltaX / step);
-    const ticksY = Math.round(e.deltaY / step);
-    for (let i = 0; i < Math.abs(ticksY); i++) {
-      const dir = ticksY > 0 ? 1 : -1;
-      this.opts.send({ mask: mask(MOUSE_TYPE_WHEEL, BTN_WHEEL), x, y: dir });
+  onWheel(e: WheelEvent, _rect: DOMRect): void {
+    const dx = e.deltaX;
+    const dy = e.deltaY;
+    let x = 0;
+    let y = 0;
+    if (Math.abs(dx) > Math.abs(dy)) {
+      x = dx > 0 ? -1 : 1;
+    } else if (dy !== 0) {
+      y = dy > 0 ? -1 : 1;
     }
-    for (let i = 0; i < Math.abs(ticksX); i++) {
-      const dir = ticksX > 0 ? 1 : -1;
-      this.opts.send({ mask: mask(MOUSE_TYPE_WHEEL, BTN_WHEEL), x: dir, y: 0 });
+    if (x !== 0 || y !== 0) {
+      this.opts.send({ mask: MOUSE_TYPE_WHEEL, x, y });
     }
   }
 

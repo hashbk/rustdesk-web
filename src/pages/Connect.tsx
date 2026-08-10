@@ -27,6 +27,7 @@ export function ConnectPage({ onConnect }: Props) {
   const [peerId, setPeerId] = useState(resolvePeerIdHint() ?? '');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [tokenValid, setTokenValid] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (token) clearTokenFromUrl();
@@ -35,6 +36,16 @@ export function ConnectPage({ onConnect }: Props) {
 
     async function load() {
       if (api) {
+        try {
+          const user = await api.verifyToken();
+          if (!cancelled) setTokenValid(true);
+          void user;
+        } catch (e) {
+          if (!cancelled) {
+            setTokenValid(false);
+            setConfigError(`console token 验证失败：${(e as Error).message}`);
+          }
+        }
         try {
           const cfg = await api.getServerConfig();
           if (!cancelled) setServerConfig(cfg);
@@ -84,7 +95,7 @@ export function ConnectPage({ onConnect }: Props) {
       <header className="app-header">
         <h1>RustDesk Web · 远程协助</h1>
         <span className="spacer" />
-        <span className="tag">{token ? '已登录 console' : '未携带 token'}</span>
+        <span className="tag">{token ? (tokenValid === false ? 'token 无效' : '已登录 console') : '未携带 token'}</span>
         <span className="tag">{usingFallback ? '回退配置' : 'console 配置'}</span>
       </header>
       <div className="page">

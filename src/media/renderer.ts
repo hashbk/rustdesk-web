@@ -1,5 +1,41 @@
 import type { VideoFrameT } from '../protos';
 
+export interface CodecSupport {
+  available: boolean;
+  codecs: string[];
+  missing: string[];
+}
+
+export function checkWebCodecsSupport(): CodecSupport {
+  if (typeof VideoDecoder === 'undefined') {
+    return { available: false, codecs: [], missing: ['vp9', 'h264', 'h265', 'vp8', 'av1'] };
+  }
+  const all = ['vp9', 'vp8', 'av1', 'h264', 'h265'];
+  const supported: string[] = [];
+  const missing: string[] = [];
+  for (const c of all) {
+    try {
+      const dec = new VideoDecoder({ output: () => {}, error: () => {} });
+      dec.configure(CODEC_CONFIG[c]);
+      if (dec.state === 'configured') supported.push(c);
+      else missing.push(c);
+      dec.close();
+    } catch {
+      missing.push(c);
+    }
+  }
+  return { available: supported.length > 0, codecs: supported, missing };
+}
+
+export interface RenderStats {
+  fps: number;
+  decodedFrames: number;
+  droppedFrames: number;
+  activeCodec: string | null;
+  width: number;
+  height: number;
+}
+
 type EncodedFrame = { data: Uint8Array; key?: boolean; pts?: number | { low: number; high: number } };
 
 function ptsToNumber(pts: EncodedFrame['pts']): number {
@@ -86,13 +122,24 @@ export class VideoRenderer {
   private displayWidth = 0;
   private displayHeight = 0;
   private pendingFrames = 0;
-
+  private activeCodec: string | null = null;
+  private decodedCount = 0;
+  private droppedCount = 0;
+  private fpsFrames = 0;
+  private fpsLastTs = Date.now();
+  private fps = 0;
+  private onStats?: (stats: RenderStats) => void;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly onError?: (error: Error) => void,
+    onStats?: (stats: RenderStats) => void,
   ) {
     this.ctx = canvas.getContext('2d', { alpha: false });
+    this.onStats = onStats;
+    if (onStats) {
+      setInterval(() => this.reportStats(), 500);
+    }
   }
 
   setDisplaySize(width: number, height: number): void {
@@ -104,13 +151,20 @@ export class VideoRenderer {
   }
 
   handleFrame(vf: VideoFrameT): void {
+    if (vf.rgb || vf.yuv) {
+      return;
+    }
     const info = framesOf(vf);
     if (!info) return;
+    this.activeCodec = info.codec;
     const decoder = this.getDecoder(info.codec, info.frames[0]?.data);
     if (!decoder) return;
 
     for (const f of info.frames) {
-      if (decoder.decodeQueueSize > 30) continue;
+      if (decoder.decodeQueueSize > 30) {
+        this.droppedCount++;
+        continue;
+      }
       let data = f.data;
       if (info.codec === 'h264' || info.codec === 'h265') {
         data = annexBToAvcc(f.data);
@@ -165,6 +219,35 @@ export class VideoRenderer {
       this.setDisplaySize(frame.displayWidth, frame.displayHeight);
     }
     this.ctx.drawImage(frame, 0, 0, this.displayWidth, this.displayHeight);
+    this.fpsFrames++;
+    this.decodedCount++;
+  }
+
+  private reportStats(): void {
+    const now = Date.now();
+    const elapsed = (now - this.fpsLastTs) / 1000;
+    this.fps = elapsed > 0 ? Math.round(this.fpsFrames / elapsed) : 0;
+    this.fpsFrames = 0;
+    this.fpsLastTs = now;
+    this.onStats?.({
+      fps: this.fps,
+      decodedFrames: this.decodedCount,
+      droppedFrames: this.droppedCount,
+      activeCodec: this.activeCodec,
+      width: this.displayWidth,
+      height: this.displayHeight,
+    });
+  }
+
+  getStats(): RenderStats {
+    return {
+      fps: this.fps,
+      decodedFrames: this.decodedCount,
+      droppedFrames: this.droppedCount,
+      activeCodec: this.activeCodec,
+      width: this.displayWidth,
+      height: this.displayHeight,
+    };
   }
 
   flush(): void {
