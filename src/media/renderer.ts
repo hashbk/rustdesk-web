@@ -126,6 +126,7 @@ function annexBToAvcc(data: Uint8Array): Uint8Array {
 }
 
 function extractH264Description(data: Uint8Array): Uint8Array | null {
+  const nalUnits: { type: number; data: Uint8Array }[] = [];
   let i = 0;
   while (i < data.length - 4) {
     const is3 = data[i] === 0 && data[i + 1] === 0 && data[i + 2] === 1;
@@ -133,20 +134,39 @@ function extractH264Description(data: Uint8Array): Uint8Array | null {
     if (is3 || is4) {
       const nalStart = i + (is4 ? 4 : 3);
       const nalType = data[nalStart] & 0x1f;
-      if (nalType === 7) {
-        let end = data.length;
-        for (let j = nalStart; j < data.length - 3; j++) {
-          if (data[j] === 0 && data[j + 1] === 0 && (data[j + 2] === 1 || (data[j + 2] === 0 && data[j + 3] === 1))) {
-            end = j;
-            break;
-          }
+      let end = data.length;
+      for (let j = nalStart; j < data.length - 3; j++) {
+        if (data[j] === 0 && data[j + 1] === 0 && (data[j + 2] === 1 || (data[j + 2] === 0 && data[j + 3] === 1))) {
+          end = j;
+          break;
         }
-        return data.slice(i, end);
       }
+      if (nalType === 7 || nalType === 8) {
+        nalUnits.push({ type: nalType, data: data.slice(nalStart, end) });
+      }
+      i = end;
+    } else {
+      i++;
     }
-    i++;
   }
-  return null;
+  const sps = nalUnits.find((n) => n.type === 7);
+  const pps = nalUnits.find((n) => n.type === 8);
+  if (!sps || !pps) return null;
+
+  const buf = new Uint8Array(11 + sps.data.length + pps.data.length);
+  const dv = new DataView(buf.buffer);
+  dv.setUint8(0, 1);
+  buf[1] = sps.data[1];
+  buf[2] = sps.data[2];
+  buf[3] = sps.data[3];
+  dv.setUint8(4, 0xff);
+  dv.setUint8(5, 0xe1);
+  dv.setUint16(6, sps.data.length, false);
+  buf.set(sps.data, 8);
+  dv.setUint8(8 + sps.data.length, 1);
+  dv.setUint16(9 + sps.data.length, pps.data.length, false);
+  buf.set(pps.data, 11 + sps.data.length);
+  return buf;
 }
 
 function extractH265Description(data: Uint8Array): Uint8Array | null {
