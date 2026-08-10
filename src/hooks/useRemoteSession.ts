@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { RemoteSession, type SessionState, type SessionEvents } from '../protocol/session';
 import type { SessionConfig } from '../protocol/config';
 import type { PeerInfoT, VideoFrameT, MessageT } from '../protos';
+import { AudioPlayer } from '../media/AudioPlayer';
 
 export interface CursorData {
   id: number;
@@ -26,11 +27,14 @@ export interface RemoteSessionHook {
   videoFrame: { frame: VideoFrameT; seq: number } | null;
   cursorData: CursorData | null;
   cursorPosition: CursorPosition | null;
+  muted: boolean;
+  audioEnabled: boolean;
   connect: (config: SessionConfig) => void;
   send2fa: (code: string) => void;
   close: () => void;
   sendMouse: (event: NonNullable<MessageT['mouseEvent']>) => void;
   sendKey: (event: NonNullable<MessageT['keyEvent']>) => void;
+  setMuted: (muted: boolean) => void;
 }
 
 export function useRemoteSession(): RemoteSessionHook {
@@ -43,7 +47,11 @@ export function useRemoteSession(): RemoteSessionHook {
   const [videoFrame, setVideoFrame] = useState<{ frame: VideoFrameT; seq: number } | null>(null);
   const [cursorData, setCursorData] = useState<CursorData | null>(null);
   const [cursorPosition, setCursorPosition] = useState<CursorPosition | null>(null);
+  const [muted, setMutedState] = useState(false);
+  const [audioEnabled, setAudioEnabled] = useState(false);
   const seqRef = useRef(0);
+  const audioPlayerRef = useRef<AudioPlayer | null>(null);
+  const mutedRef = useRef(false);
 
   const pushLog = useCallback((msg: string) => {
     setLogs((prev) => (prev.length > 200 ? [...prev.slice(-199), msg] : [...prev, msg]));
@@ -81,6 +89,19 @@ export function useRemoteSession(): RemoteSessionHook {
         cursorPosition: (pos) => {
           setCursorPosition({ x: pos.x ?? 0, y: pos.y ?? 0 });
         },
+        audioFormat: async (fmt) => {
+          const sr = fmt.sampleRate ?? 48000;
+          const ch = fmt.channels ?? 2;
+          if (!audioPlayerRef.current) {
+            audioPlayerRef.current = new AudioPlayer((e) => pushLog(`audio: ${e.message}`));
+          }
+          const ok = await audioPlayerRef.current.configure(sr, ch);
+          setAudioEnabled(ok);
+          if (ok) audioPlayerRef.current.setMuted(mutedRef.current);
+        },
+        audioFrame: (frame) => {
+          audioPlayerRef.current?.handleFrame(frame.data ?? new Uint8Array());
+        },
         error: (e) => {
           setError(e.message);
           pushLog(`error: ${e.message}`);
@@ -112,8 +133,17 @@ export function useRemoteSession(): RemoteSessionHook {
     sessionRef.current?.sendKey(event);
   }, []);
 
+  const setMuted = useCallback((m: boolean) => {
+    setMutedState(m);
+    mutedRef.current = m;
+    audioPlayerRef.current?.setMuted(m);
+  }, []);
+
   useEffect(() => {
-    return () => sessionRef.current?.close();
+    return () => {
+      sessionRef.current?.close();
+      audioPlayerRef.current?.destroy();
+    };
   }, []);
 
   return {
@@ -125,10 +155,13 @@ export function useRemoteSession(): RemoteSessionHook {
     videoFrame,
     cursorData,
     cursorPosition,
+    muted,
+    audioEnabled,
     connect,
     send2fa,
     close,
     sendMouse,
     sendKey,
+    setMuted,
   };
 }
