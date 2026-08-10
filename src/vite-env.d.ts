@@ -5,29 +5,25 @@ declare module 'tweetnacl' {
     publicKey: Uint8Array;
     secretKey: Uint8Array;
   }
-  interface Nacl {
-    sign: {
-      open(signed: Uint8Array, publicKey: Uint8Array): Uint8Array | null;
-      detached(message: Uint8Array, secretKey: Uint8Array): Uint8Array;
-      keyPair(): KeyPair;
-    };
-    box: {
-      keyPair(): KeyPair;
-      (message: Uint8Array, nonce: Uint8Array, publicKey: Uint8Array, secretKey: Uint8Array): Uint8Array;
-      open(
-        box: Uint8Array,
-        nonce: Uint8Array,
-        publicKey: Uint8Array,
-        secretKey: Uint8Array,
-      ): Uint8Array | null;
-    };
-    secretbox: {
-      (message: Uint8Array, nonce: Uint8Array, key: Uint8Array): Uint8Array;
-      open(box: Uint8Array, nonce: Uint8Array, key: Uint8Array): Uint8Array | null;
-    };
-    randomBytes(length: number): Uint8Array;
-    hash(message: Uint8Array): Uint8Array;
-  }
-  const nacl: Nacl;
-  export default nacl;
+  export const sign: {
+    open(signed: Uint8Array, publicKey: Uint8Array): Uint8Array | null;
+    detached(message: Uint8Array, secretKey: Uint8Array): Uint8Array;
+    keyPair(): KeyPair;
+  };
+  export const box: {
+    keyPair(): KeyPair;
+    (message: Uint8Array, nonce: Uint8Array, publicKey: Uint8Array, secretKey: Uint8Array): Uint8Array;
+    open(
+      box: Uint8Array,
+      nonce: Uint8Array,
+      publicKey: Uint8Array,
+      secretKey: Uint8Array,
+    ): Uint8Array | null;
+  };
+  export const secretbox: {
+    (message: Uint8Array, nonce: Uint8Array, key: Uint8Array): Uint8Array;
+    open(box: Uint8Array, nonce: Uint8Array, key: Uint8Array): Uint8Array | null;
+  };
+  export function randomBytes(length: number): Uint8Array;
+  export function hash(message: Uint8Array): Uint8Array;
 }

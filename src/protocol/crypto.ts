@@ -1,4 +1,4 @@
-import nacl from 'tweetnacl';
+import * as nacl from 'tweetnacl';
 
 export async function initCrypto(): Promise<void> {
   // tweetnacl is pure JS; Web Crypto is native. Nothing to initialize.
