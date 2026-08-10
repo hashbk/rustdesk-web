@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionConfig } from '../protocol/config';
 import { useRemoteSession } from '../hooks/useRemoteSession';
 import { RemoteScreen } from '../components/RemoteScreen';
+import { checkWebCodecsSupport, type RenderStats } from '../media/renderer';
 
 interface Props {
   config: SessionConfig;
@@ -23,16 +24,56 @@ export function SessionPage({ config, onExit }: Props) {
   const session = useRemoteSession();
   const [twoFa, setTwoFa] = useState('');
   const [showLogs, setShowLogs] = useState(false);
+  const [viewOnly, setViewOnly] = useState(false);
+  const [stats, setStats] = useState<RenderStats | null>(null);
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
+  const configRef = useRef(config);
+  configRef.current = config;
+
+  const codecSupport = useMemo(() => checkWebCodecsSupport(), []);
 
   useEffect(() => {
     session.connect(config);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (session.state === 'closed' && !session.error && reconnectAttempt < 3) {
+      const timer = setTimeout(() => {
+        setReconnectAttempt((n) => n + 1);
+        session.connect(configRef.current);
+      }, 2000 * (reconnectAttempt + 1));
+      return () => clearTimeout(timer);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.state, session.error, reconnectAttempt]);
+
   const connected = session.state === 'connected';
   const busy = ['connecting-rendezvous', 'connecting-relay', 'handshaking', 'logging-in'].includes(
     session.state,
   );
+
+  if (!codecSupport.available && connected) {
+    return (
+      <div className="app-shell session-page">
+        <header className="session-toolbar">
+          <strong>{config.peerId}</strong>
+          <span className="info">WebCodecs 不可用</span>
+          <span className="spacer" style={{ flex: 1 }} />
+          <button className="btn" onClick={onExit}>返回</button>
+        </header>
+        <div className="session-stage">
+          <div className="state-banner" style={{ color: 'var(--danger)' }}>
+            当前浏览器不支持 WebCodecs VideoDecoder，无法解码远程视频。
+            <br />
+            缺少编解码器：{codecSupport.missing.join(', ') || '全部'}
+            <br />
+            请使用 Chrome 94+ / Edge 94+ 或其他支持 WebCodecs 的浏览器。
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="app-shell session-page">
@@ -44,7 +85,25 @@ export function SessionPage({ config, onExit }: Props) {
             {session.peerInfo.hostname ?? ''} · {session.peerInfo.platform ?? ''}
           </span>
         )}
+        {stats && connected && (
+          <span className="info">
+            {stats.width}×{stats.height} · {stats.fps}fps · {stats.activeCodec ?? '?'}
+            {stats.droppedFrames > 0 && ` · 丢${stats.droppedFrames}`}
+          </span>
+        )}
+        {reconnectAttempt > 0 && session.state !== 'connected' && (
+          <span className="info">重连中 ({reconnectAttempt}/3)</span>
+        )}
         <span className="spacer" style={{ flex: 1 }} />
+        {connected && (
+          <button
+            className="btn"
+            onClick={() => setViewOnly((v) => !v)}
+            title="切换只读模式"
+          >
+            {viewOnly ? '只读' : '可控制'}
+          </button>
+        )}
         <button className="btn" onClick={() => setShowLogs((v) => !v)}>
           {showLogs ? '隐藏日志' : '日志'}
         </button>
@@ -58,8 +117,12 @@ export function SessionPage({ config, onExit }: Props) {
           <RemoteScreen
             peerInfo={session.peerInfo}
             videoFrame={session.videoFrame}
+            cursorData={session.cursorData}
+            cursorPosition={session.cursorPosition}
+            viewOnly={viewOnly}
             sendMouse={session.sendMouse}
             sendKey={session.sendKey}
+            onStats={setStats}
           />
         )}
         {busy && (
@@ -93,7 +156,13 @@ export function SessionPage({ config, onExit }: Props) {
           <div className="state-banner">
             {session.closeReason ? `已断开：${session.closeReason}` : '连接已关闭'}
             <div style={{ marginTop: 12 }}>
-              <button className="btn" onClick={onExit}>
+              <button className="btn" onClick={() => {
+                setReconnectAttempt(0);
+                session.connect(configRef.current);
+              }}>
+                重连
+              </button>
+              <button className="btn" style={{ marginLeft: 8 }} onClick={onExit}>
                 返回
               </button>
             </div>

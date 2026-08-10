@@ -1,7 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { RemoteSession, type SessionState, type SessionEvents } from '../protocol/session';
 import type { SessionConfig } from '../protocol/config';
-import type { PeerInfoT, VideoFrameT } from '../protos';
+import type { PeerInfoT, VideoFrameT, MessageT } from '../protos';
+
+export interface CursorData {
+  id: number;
+  hotx: number;
+  hoty: number;
+  width: number;
+  height: number;
+  colors: Uint8Array;
+}
+
+export interface CursorPosition {
+  x: number;
+  y: number;
+}
 
 export interface RemoteSessionHook {
   state: SessionState;
@@ -10,11 +24,13 @@ export interface RemoteSessionHook {
   closeReason: string | null;
   logs: string[];
   videoFrame: { frame: VideoFrameT; seq: number } | null;
+  cursorData: CursorData | null;
+  cursorPosition: CursorPosition | null;
   connect: (config: SessionConfig) => void;
   send2fa: (code: string) => void;
   close: () => void;
-  sendMouse: (event: NonNullable<import('../protos').MessageT['mouseEvent']>) => void;
-  sendKey: (event: NonNullable<import('../protos').MessageT['keyEvent']>) => void;
+  sendMouse: (event: NonNullable<MessageT['mouseEvent']>) => void;
+  sendKey: (event: NonNullable<MessageT['keyEvent']>) => void;
 }
 
 export function useRemoteSession(): RemoteSessionHook {
@@ -25,6 +41,8 @@ export function useRemoteSession(): RemoteSessionHook {
   const [closeReason, setCloseReason] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [videoFrame, setVideoFrame] = useState<{ frame: VideoFrameT; seq: number } | null>(null);
+  const [cursorData, setCursorData] = useState<CursorData | null>(null);
+  const [cursorPosition, setCursorPosition] = useState<CursorPosition | null>(null);
   const seqRef = useRef(0);
 
   const pushLog = useCallback((msg: string) => {
@@ -38,6 +56,8 @@ export function useRemoteSession(): RemoteSessionHook {
       setCloseReason(null);
       setPeerInfo(null);
       setLogs([]);
+      setCursorData(null);
+      setCursorPosition(null);
 
       const session = new RemoteSession(config);
       sessionRef.current = session;
@@ -47,6 +67,19 @@ export function useRemoteSession(): RemoteSessionHook {
         videoFrame: (frame) => {
           seqRef.current += 1;
           setVideoFrame({ frame, seq: seqRef.current });
+        },
+        cursorData: (cd) => {
+          setCursorData({
+            id: cd.id ?? 0,
+            hotx: cd.hotx ?? 0,
+            hoty: cd.hoty ?? 0,
+            width: cd.width ?? 0,
+            height: cd.height ?? 0,
+            colors: cd.colors ?? new Uint8Array(),
+          });
+        },
+        cursorPosition: (pos) => {
+          setCursorPosition({ x: pos.x ?? 0, y: pos.y ?? 0 });
         },
         error: (e) => {
           setError(e.message);
@@ -71,11 +104,11 @@ export function useRemoteSession(): RemoteSessionHook {
     sessionRef.current?.close();
   }, []);
 
-  const sendMouse = useCallback((event: NonNullable<import('../protos').MessageT['mouseEvent']>) => {
+  const sendMouse = useCallback((event: NonNullable<MessageT['mouseEvent']>) => {
     sessionRef.current?.sendMouse(event);
   }, []);
 
-  const sendKey = useCallback((event: NonNullable<import('../protos').MessageT['keyEvent']>) => {
+  const sendKey = useCallback((event: NonNullable<MessageT['keyEvent']>) => {
     sessionRef.current?.sendKey(event);
   }, []);
 
@@ -83,5 +116,19 @@ export function useRemoteSession(): RemoteSessionHook {
     return () => sessionRef.current?.close();
   }, []);
 
-  return { state, peerInfo, error, closeReason, logs, videoFrame, connect, send2fa, close, sendMouse, sendKey };
+  return {
+    state,
+    peerInfo,
+    error,
+    closeReason,
+    logs,
+    videoFrame,
+    cursorData,
+    cursorPosition,
+    connect,
+    send2fa,
+    close,
+    sendMouse,
+    sendKey,
+  };
 }
