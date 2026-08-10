@@ -174,20 +174,7 @@ export class RemoteSession {
         if (ph.failure && ph.failure !== 0) throw new Error(`punch hole failure: ${ph.failure}`);
         if (ph.relayServer) {
           this.log(`peer requests relay via ${ph.relayServer}`);
-          const uuid = crypto.randomUUID();
-          const relayReq: RendezvousMessageT = {
-            requestRelay: {
-              id: this.config.peerId,
-              uuid,
-              relayServer: ph.relayServer,
-              secure: true,
-              licenceKey: this.config.server.key,
-              connType: this.config.connType ?? ConnType.DEFAULT_CONN,
-              token: this.config.accessToken ?? '',
-            },
-          };
-          this.rendezvousStream!.send(encodeRendezvous(relayReq));
-          continue;
+          return await this.requestRelayViaRendezvous(ph.relayServer);
         }
         throw new Error('punch hole response without relay server');
       }
@@ -195,6 +182,48 @@ export class RemoteSession {
       this.log(`unexpected rendezvous message: ${union ?? 'unknown'}`);
     }
     throw new Error('failed to negotiate relay');
+  }
+
+  private async requestRelayViaRendezvous(relayServer: string): Promise<{ uuid: string; relayServer: string; signedPk: Uint8Array }> {
+    const url = rendezvousWsUrl(this.config.server);
+    const queue = new MessageQueue();
+    const stream = new WsStream(url, {
+      onMessage: (data) => queue.push(data),
+      onError: (e) => this.handleError(e),
+      onClose: () => queue.close(),
+    });
+    await stream.connect();
+
+    const uuid = crypto.randomUUID();
+    const relayReq: RendezvousMessageT = {
+      requestRelay: {
+        id: this.config.peerId,
+        uuid,
+        relayServer,
+        secure: true,
+        licenceKey: this.config.server.key,
+        connType: this.config.connType ?? ConnType.DEFAULT_CONN,
+        token: this.config.accessToken ?? '',
+      },
+    };
+    stream.send(encodeRendezvous(relayReq));
+    this.log(`request relay sent on new connection (uuid=${uuid})`);
+
+    try {
+      const data = await queue.next(15000);
+      if (data.length === 0) throw new Error('rendezvous closed');
+      const msg = decodeRendezvous(data);
+      const union = rendezvousUnionName(msg);
+      if (union === 'relayResponse' && msg.relayResponse) {
+        const rr = msg.relayResponse;
+        if (rr.refuseReason) throw new Error(`relay refused: ${rr.refuseReason}`);
+        this.log(`relay response: server=${rr.relayServer}, uuid=${rr.uuid}`);
+        return { uuid: rr.uuid, relayServer: rr.relayServer, signedPk: rr.pk ?? new Uint8Array() };
+      }
+      throw new Error(`unexpected rendezvous response: ${union ?? 'unknown'}`);
+    } finally {
+      stream.close();
+    }
   }
 
   private async connectViaRelay(info: { uuid: string; relayServer: string; signedPk: Uint8Array }): Promise<void> {
