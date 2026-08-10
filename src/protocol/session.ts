@@ -14,6 +14,7 @@ import {
   type HashT,
 } from '../protos';
 import { ConnType, rendezvousWsUrl, relayWsUrl, type SessionConfig, type ServerConfig } from './config';
+import { detectCodecAbilities } from '../media/renderer';
 
 export type SessionState =
   | 'idle'
@@ -304,6 +305,8 @@ export class RemoteSession {
       return;
     }
     const passwordHash = await computePasswordHash(this.config.password, hash.salt, hash.challenge);
+    const abilities = await detectCodecAbilities();
+    this.log(`codec support: vp9=${abilities.vp9} h264=${abilities.h264} h265=${abilities.h265} av1=${abilities.av1} vp8=${abilities.vp8}`);
     const loginMsg: MessageT = {
       loginRequest: {
         username: this.config.peerId,
@@ -316,11 +319,11 @@ export class RemoteSession {
         option: {
           imageQuality: 3,
           supportedDecoding: {
-            abilityVp9: 1,
-            abilityH264: 1,
-            abilityH265: 1,
-            abilityVp8: 1,
-            abilityAv1: 1,
+            abilityVp9: abilities.vp9 ? 1 : 0,
+            abilityH264: abilities.h264 ? 1 : 0,
+            abilityH265: abilities.h265 ? 1 : 0,
+            abilityVp8: abilities.vp8 ? 1 : 0,
+            abilityAv1: 0,
             prefer: 0,
           },
         },

@@ -27,6 +27,39 @@ export function checkWebCodecsSupport(): CodecSupport {
   return { available: supported.length > 0, codecs: supported, missing };
 }
 
+export interface CodecAbilities {
+  vp8: boolean;
+  vp9: boolean;
+  av1: boolean;
+  h264: boolean;
+  h265: boolean;
+}
+
+export async function detectCodecAbilities(): Promise<CodecAbilities> {
+  if (typeof VideoDecoder === 'undefined') {
+    return { vp8: false, vp9: false, av1: false, h264: false, h265: false };
+  }
+  const entries: [keyof CodecAbilities, string][] = [
+    ['vp8', 'vp8'],
+    ['vp9', 'vp09.00.10.08'],
+    ['av1', 'av01.0.05M.08'],
+    ['h264', 'avc1.42E01E'],
+    ['h265', 'hev1.1.6.L93.B0'],
+  ];
+  const result = { vp8: false, vp9: false, av1: false, h264: false, h265: false };
+  await Promise.all(
+    entries.map(async ([key, codec]) => {
+      try {
+        const r = await VideoDecoder.isConfigSupported({ codec });
+        result[key] = !!r.supported;
+      } catch {
+        result[key] = false;
+      }
+    }),
+  );
+  return result;
+}
+
 export interface RenderStats {
   fps: number;
   decodedFrames: number;
@@ -116,8 +149,79 @@ function extractH264Description(data: Uint8Array): Uint8Array | null {
   return null;
 }
 
+function extractH265Description(data: Uint8Array): Uint8Array | null {
+  const nalUnits: { type: number; data: Uint8Array }[] = [];
+  let i = 0;
+  while (i < data.length - 4) {
+    const is3 = data[i] === 0 && data[i + 1] === 0 && data[i + 2] === 1;
+    const is4 = data[i] === 0 && data[i + 1] === 0 && data[i + 2] === 0 && data[i + 3] === 1;
+    if (is3 || is4) {
+      const nalStart = i + (is4 ? 4 : 3);
+      const nalType = (data[nalStart] >> 1) & 0x3f;
+      let end = data.length;
+      for (let j = nalStart; j < data.length - 3; j++) {
+        if (data[j] === 0 && data[j + 1] === 0 && (data[j + 2] === 1 || (data[j + 2] === 0 && data[j + 3] === 1))) {
+          end = j;
+          break;
+        }
+      }
+      if (nalType === 32 || nalType === 33 || nalType === 34) {
+        nalUnits.push({ type: nalType, data: data.slice(nalStart, end) });
+      }
+      i = end;
+    } else {
+      i++;
+    }
+  }
+  if (nalUnits.length === 0) return null;
+  const vps = nalUnits.find((n) => n.type === 32);
+  const sps = nalUnits.find((n) => n.type === 33);
+  const pps = nalUnits.find((n) => n.type === 34);
+  if (!vps || !sps || !pps) return null;
+
+  const arrays = [vps, sps, pps];
+  const numArrays = arrays.length;
+  const totalNalBytes = arrays.reduce((sum, a) => sum + a.data.length, 0);
+  const buf = new Uint8Array(22 + 6 * numArrays + totalNalBytes);
+  const dv = new DataView(buf.buffer);
+
+  dv.setUint8(0, 1);
+  buf[1] = sps.data[1];
+  buf[2] = sps.data[2];
+  buf[3] = sps.data[3];
+  buf[4] = sps.data[4];
+  buf[5] = sps.data[5];
+  dv.setUint8(6, 0);
+  dv.setUint8(7, 0);
+  dv.setUint8(8, 0);
+  dv.setUint8(9, 0);
+  dv.setUint8(10, 0);
+  dv.setUint8(11, 0);
+  dv.setUint16(12, 0, false);
+  dv.setUint8(14, 0);
+  dv.setUint8(15, 0);
+  dv.setUint8(16, 0);
+  dv.setUint8(17, 0);
+  dv.setUint8(18, 0);
+  dv.setUint8(19, 0);
+  dv.setUint8(20, 0);
+  dv.setUint8(21, numArrays);
+
+  let offset = 22;
+  for (const nal of arrays) {
+    dv.setUint8(offset, 0);
+    dv.setUint16(offset + 1, 1, false);
+    dv.setUint16(offset + 3, nal.type, false);
+    dv.setUint32(offset + 5, nal.data.length, false);
+    buf.set(nal.data, offset + 9);
+    offset += 9 + nal.data.length;
+  }
+  return buf;
+}
+
 export class VideoRenderer {
   private decoders: Map<string, VideoDecoder> = new Map();
+  private seenKeyFrame: Set<string> = new Set();
   private ctx: CanvasRenderingContext2D | null = null;
   private displayWidth = 0;
   private displayHeight = 0;
@@ -161,6 +265,13 @@ export class VideoRenderer {
     if (!decoder) return;
 
     for (const f of info.frames) {
+      const isKey = !!f.key;
+      if (!isKey && !this.seenKeyFrame.has(info.codec)) {
+        continue;
+      }
+      if (isKey) {
+        this.seenKeyFrame.add(info.codec);
+      }
       if (decoder.decodeQueueSize > 30) {
         this.droppedCount++;
         continue;
@@ -171,7 +282,7 @@ export class VideoRenderer {
       }
       try {
         const chunk = new EncodedVideoChunk({
-          type: f.key ? 'key' : 'delta',
+          type: isKey ? 'key' : 'delta',
           timestamp: ptsToNumber(f.pts),
           data,
         });
@@ -191,8 +302,11 @@ export class VideoRenderer {
       return null;
     }
     const config = { ...CODEC_CONFIG[codec] };
-    if ((codec === 'h264' || codec === 'h265') && firstFrameData) {
+    if (codec === 'h264' && firstFrameData) {
       const desc = extractH264Description(firstFrameData);
+      if (desc) (config as VideoDecoderConfig).description = desc;
+    } else if (codec === 'h265' && firstFrameData) {
+      const desc = extractH265Description(firstFrameData);
       if (desc) (config as VideoDecoderConfig).description = desc;
     }
     decoder = new VideoDecoder({
