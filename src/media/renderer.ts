@@ -116,6 +116,90 @@ function extractH264Description(data: Uint8Array): Uint8Array | null {
   return null;
 }
 
+function findNalUnits(data: Uint8Array): { type: number; start: number; end: number }[] {
+  const nals: { type: number; start: number; end: number }[] = [];
+  let i = 0;
+  while (i < data.length - 4) {
+    const is3 = data[i] === 0 && data[i + 1] === 0 && data[i + 2] === 1;
+    const is4 = data[i] === 0 && data[i + 1] === 0 && data[i + 2] === 0 && data[i + 3] === 1;
+    if (is3 || is4) {
+      const nalStart = i + (is4 ? 4 : 3);
+      let end = data.length;
+      for (let j = nalStart; j < data.length - 3; j++) {
+        if (data[j] === 0 && data[j + 1] === 0 && (data[j + 2] === 1 || (data[j + 2] === 0 && data[j + 3] === 1))) {
+          end = j;
+          break;
+        }
+      }
+      nals.push({ start: nalStart, end, type: -1 });
+      i = end;
+    } else {
+      i++;
+    }
+  }
+  return nals;
+}
+
+function extractH265Description(data: Uint8Array): Uint8Array | null {
+  const nals = findNalUnits(data);
+  const vps: Uint8Array[] = [];
+  const sps: Uint8Array[] = [];
+  const pps: Uint8Array[] = [];
+  for (const nal of nals) {
+    if (nal.start >= data.length) continue;
+    const nalType = (data[nal.start] >> 1) & 0x3f;
+    const raw = data.slice(nal.start, nal.end);
+    if (nalType === 32) vps.push(raw);
+    else if (nalType === 33) sps.push(raw);
+    else if (nalType === 34) pps.push(raw);
+  }
+  if (sps.length === 0) return null;
+
+  let profileSpace = 0, tierFlag = 0, profileIdc = 1, levelIdc = 93;
+  const constraintFlags = new Uint8Array(6);
+  if (sps[0].length >= 13) {
+    const spsData = sps[0];
+    profileSpace = (spsData[2] >> 6) & 0x03;
+    tierFlag = (spsData[2] >> 5) & 0x01;
+    profileIdc = spsData[2] & 0x1f;
+    constraintFlags.set(spsData.subarray(3, 9));
+    levelIdc = spsData[9];
+  }
+
+  const arrays: { nalType: number; units: Uint8Array[] }[] = [];
+  if (vps.length) arrays.push({ nalType: 32, units: vps });
+  if (sps.length) arrays.push({ nalType: 33, units: sps });
+  if (pps.length) arrays.push({ nalType: 34, units: pps });
+
+  let totalSize = 23 + arrays.length * 3;
+  for (const a of arrays) {
+    for (const u of a.units) totalSize += 2 + u.length;
+  }
+  const out = new Uint8Array(totalSize);
+  let p = 0;
+  out[p++] = 1;
+  out[p++] = (profileSpace << 6) | (tierFlag << 5) | profileIdc;
+  out.set(constraintFlags, p); p += 6;
+  out[p++] = levelIdc;
+  out[p++] = 0xf0; out[p++] = 0x00;
+  out[p++] = 0xfc;
+  out[p++] = 0xfc;
+  out[p++] = 0xf8;
+  out[p++] = 0xf8;
+  out[p++] = 0x00; out[p++] = 0x00;
+  out[p++] = 0x00 | (0 << 2) | (1 << 1) | 3;
+  out[p++] = arrays.length;
+  for (const a of arrays) {
+    out[p++] = 0x80 | a.nalType;
+    out[p++] = 0x00; out[p++] = a.units.length;
+    for (const u of a.units) {
+      out[p++] = (u.length >> 8) & 0xff; out[p++] = u.length & 0xff;
+      out.set(u, p); p += u.length;
+    }
+  }
+  return out;
+}
+
 export class VideoRenderer {
   private decoders: Map<string, VideoDecoder> = new Map();
   private ctx: CanvasRenderingContext2D | null = null;
@@ -191,9 +275,14 @@ export class VideoRenderer {
       return null;
     }
     const config = { ...CODEC_CONFIG[codec] };
-    if ((codec === 'h264' || codec === 'h265') && firstFrameData) {
-      const desc = extractH264Description(firstFrameData);
-      if (desc) (config as VideoDecoderConfig).description = desc;
+    if (firstFrameData) {
+      if (codec === 'h264') {
+        const desc = extractH264Description(firstFrameData);
+        if (desc) (config as VideoDecoderConfig).description = desc;
+      } else if (codec === 'h265') {
+        const desc = extractH265Description(firstFrameData);
+        if (desc) (config as VideoDecoderConfig).description = desc;
+      }
     }
     decoder = new VideoDecoder({
       output: (frame: VideoFrame) => {
