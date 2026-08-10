@@ -1,0 +1,191 @@
+import type { VideoFrameT } from '../protos';
+
+type EncodedFrame = { data: Uint8Array; key?: boolean; pts?: number | { low: number; high: number } };
+
+function ptsToNumber(pts: EncodedFrame['pts']): number {
+  if (pts === undefined || pts === null) return 0;
+  if (typeof pts === 'number') return pts;
+  return pts.low + (pts.high >>> 0) * 0x100000000;
+}
+
+function framesOf(vf: VideoFrameT): { codec: string; frames: EncodedFrame[] } | null {
+  if (vf.vp9s?.frames?.length) return { codec: 'vp9', frames: vf.vp9s.frames };
+  if (vf.vp8s?.frames?.length) return { codec: 'vp8', frames: vf.vp8s.frames };
+  if (vf.av1s?.frames?.length) return { codec: 'av1', frames: vf.av1s.frames };
+  if (vf.h264s?.frames?.length) return { codec: 'h264', frames: vf.h264s.frames };
+  if (vf.h265s?.frames?.length) return { codec: 'h265', frames: vf.h265s.frames };
+  return null;
+}
+
+const CODEC_CONFIG: Record<string, VideoDecoderConfig> = {
+  vp9: { codec: 'vp09.00.10.08' },
+  vp8: { codec: 'vp8' },
+  av1: { codec: 'av01.0.05M.08' },
+  h264: { codec: 'avc1.42E01E' },
+  h265: { codec: 'hev1.1.6.L93.B0' },
+};
+
+function annexBToAvcc(data: Uint8Array): Uint8Array {
+  const out: number[] = [];
+  let i = 0;
+  while (i < data.length) {
+    let start = -1;
+    for (let j = i; j < data.length - 3; j++) {
+      if (data[j] === 0 && data[j + 1] === 0 && data[j + 2] === 1) {
+        start = j + 3;
+        break;
+      }
+      if (data[j] === 0 && data[j + 1] === 0 && data[j + 2] === 0 && data[j + 3] === 1) {
+        start = j + 4;
+        break;
+      }
+    }
+    if (start === -1) break;
+    let end = data.length;
+    for (let j = start; j < data.length - 3; j++) {
+      if (data[j] === 0 && data[j + 1] === 0 && (data[j + 2] === 1 || (data[j + 2] === 0 && data[j + 3] === 1))) {
+        end = j;
+        break;
+      }
+    }
+    const len = end - start;
+    out.push((len >>> 24) & 0xff, (len >>> 16) & 0xff, (len >>> 8) & 0xff, len & 0xff);
+    for (let k = start; k < end; k++) out.push(data[k]);
+    i = end;
+  }
+  return new Uint8Array(out);
+}
+
+function extractH264Description(data: Uint8Array): Uint8Array | null {
+  let i = 0;
+  while (i < data.length - 4) {
+    const is3 = data[i] === 0 && data[i + 1] === 0 && data[i + 2] === 1;
+    const is4 = data[i] === 0 && data[i + 1] === 0 && data[i + 2] === 0 && data[i + 3] === 1;
+    if (is3 || is4) {
+      const nalStart = i + (is4 ? 4 : 3);
+      const nalType = data[nalStart] & 0x1f;
+      if (nalType === 7) {
+        let end = data.length;
+        for (let j = nalStart; j < data.length - 3; j++) {
+          if (data[j] === 0 && data[j + 1] === 0 && (data[j + 2] === 1 || (data[j + 2] === 0 && data[j + 3] === 1))) {
+            end = j;
+            break;
+          }
+        }
+        return data.slice(i, end);
+      }
+    }
+    i++;
+  }
+  return null;
+}
+
+export class VideoRenderer {
+  private decoders: Map<string, VideoDecoder> = new Map();
+  private ctx: CanvasRenderingContext2D | null = null;
+  private displayWidth = 0;
+  private displayHeight = 0;
+  private pendingFrames = 0;
+
+
+  constructor(
+    private readonly canvas: HTMLCanvasElement,
+    private readonly onError?: (error: Error) => void,
+  ) {
+    this.ctx = canvas.getContext('2d', { alpha: false });
+  }
+
+  setDisplaySize(width: number, height: number): void {
+    if (width === this.displayWidth && height === this.displayHeight) return;
+    this.displayWidth = width;
+    this.displayHeight = height;
+    this.canvas.width = width;
+    this.canvas.height = height;
+  }
+
+  handleFrame(vf: VideoFrameT): void {
+    const info = framesOf(vf);
+    if (!info) return;
+    const decoder = this.getDecoder(info.codec, info.frames[0]?.data);
+    if (!decoder) return;
+
+    for (const f of info.frames) {
+      if (decoder.decodeQueueSize > 30) continue;
+      let data = f.data;
+      if (info.codec === 'h264' || info.codec === 'h265') {
+        data = annexBToAvcc(f.data);
+      }
+      try {
+        const chunk = new EncodedVideoChunk({
+          type: f.key ? 'key' : 'delta',
+          timestamp: ptsToNumber(f.pts),
+          data,
+        });
+        decoder.decode(chunk);
+        this.pendingFrames++;
+      } catch (err) {
+        this.onError?.(err instanceof Error ? err : new Error(String(err)));
+      }
+    }
+  }
+
+  private getDecoder(codec: string, firstFrameData?: Uint8Array): VideoDecoder | null {
+    let decoder = this.decoders.get(codec);
+    if (decoder) return decoder;
+    if (typeof VideoDecoder === 'undefined') {
+      this.onError?.(new Error('WebCodecs VideoDecoder not available in this browser'));
+      return null;
+    }
+    const config = { ...CODEC_CONFIG[codec] };
+    if ((codec === 'h264' || codec === 'h265') && firstFrameData) {
+      const desc = extractH264Description(firstFrameData);
+      if (desc) (config as VideoDecoderConfig).description = desc;
+    }
+    decoder = new VideoDecoder({
+      output: (frame: VideoFrame) => {
+        this.drawFrame(frame);
+        frame.close();
+        this.pendingFrames = Math.max(0, this.pendingFrames - 1);
+      },
+      error: (e: DOMException) => this.onError?.(new Error(`decoder(${codec}): ${e.message}`)),
+    });
+    try {
+      decoder.configure(config);
+    } catch (err) {
+      this.onError?.(err instanceof Error ? err : new Error(String(err)));
+      return null;
+    }
+    this.decoders.set(codec, decoder);
+    return decoder;
+  }
+
+  private drawFrame(frame: VideoFrame): void {
+    if (!this.ctx) return;
+    if (frame.displayWidth !== this.displayWidth || frame.displayHeight !== this.displayHeight) {
+      this.setDisplaySize(frame.displayWidth, frame.displayHeight);
+    }
+    this.ctx.drawImage(frame, 0, 0, this.displayWidth, this.displayHeight);
+  }
+
+  flush(): void {
+    for (const d of this.decoders.values()) {
+      try {
+        d.flush();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  destroy(): void {
+    for (const d of this.decoders.values()) {
+      try {
+        d.close();
+      } catch {
+        /* ignore */
+      }
+    }
+    this.decoders.clear();
+    this.ctx = null;
+  }
+}
