@@ -157,6 +157,7 @@ export type KeyEventT = {
 export type MessageT = {
   signedId?: { id: Uint8Array; pk?: Uint8Array };
   publicKey?: { asymmetricValue?: Uint8Array; symmetricValue?: Uint8Array };
+  testDelay?: { fromClient?: boolean; lastDelay?: number; targetBitrate?: number };
   hash?: HashT;
   loginRequest?: {
     username?: string;

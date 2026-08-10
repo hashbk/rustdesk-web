@@ -231,6 +231,22 @@ export class RemoteSession {
     this.runSteadyState();
   }
 
+  private async nextMessage(timeoutMs?: number): Promise<MessageT> {
+    for (let i = 0; i < 20; i++) {
+      const data = await this.relayQueue.next(timeoutMs);
+      if (data.length === 0) throw new Error('stream closed');
+      const msg = decodeMessage(data);
+      if (msg.testDelay) {
+        if (!msg.testDelay.fromClient) {
+          this.relayStream?.send(encodeMessage({ testDelay: msg.testDelay }));
+        }
+        continue;
+      }
+      return msg;
+    }
+    throw new Error('too many test_delay messages while waiting for response');
+  }
+
   private async handshakeAndLogin(signedPk: Uint8Array): Promise<void> {
     this.setState('handshaking');
     let peerSignPk: Uint8Array | null = null;
@@ -247,7 +263,7 @@ export class RemoteSession {
       }
     }
 
-    const first = decodeMessage(await this.relayQueue.next(15000));
+    const first = await this.nextMessage(15000);
     if (first.signedId && peerSignPk) {
       const unsigned = verifySigned(first.signedId.id, peerSignPk);
       if (!unsigned) throw new Error('failed to verify peer signed id');
@@ -273,8 +289,7 @@ export class RemoteSession {
 
   private async handleLogin(): Promise<void> {
     this.setState('logging-in');
-    const data = await this.relayQueue.next(15000);
-    const msg = decodeMessage(data);
+    const msg = await this.nextMessage(15000);
 
     if (!msg.hash) {
       if (msg.loginResponse?.error) throw new Error(`login error: ${msg.loginResponse.error}`);
@@ -314,7 +329,7 @@ export class RemoteSession {
     this.relayStream!.send(encodeMessage(loginMsg));
     this.log('login request sent');
 
-    const resp = decodeMessage(await this.relayQueue.next(15000));
+    const resp = await this.nextMessage(15000);
     if (!resp.loginResponse) throw new Error('expected login response');
 
     if (resp.loginResponse.error) {
@@ -340,7 +355,7 @@ export class RemoteSession {
     this.relayStream!.send(encodeMessage({ auth2fa: { code } } as MessageT));
     this.log('2fa code sent');
     try {
-      const resp = decodeMessage(await this.relayQueue.next(15000));
+      const resp = await this.nextMessage(15000);
       if (resp.loginResponse?.error) throw new Error(`2fa failed: ${resp.loginResponse.error}`);
       if (resp.loginResponse?.peerInfo) {
         this.emit('peerInfo', resp.loginResponse.peerInfo);
