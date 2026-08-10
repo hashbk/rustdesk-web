@@ -118,6 +118,7 @@ function extractH264Description(data: Uint8Array): Uint8Array | null {
 
 export class VideoRenderer {
   private decoders: Map<string, VideoDecoder> = new Map();
+  private seenKeyFrame: Set<string> = new Set();
   private ctx: CanvasRenderingContext2D | null = null;
   private displayWidth = 0;
   private displayHeight = 0;
@@ -157,10 +158,18 @@ export class VideoRenderer {
     const info = framesOf(vf);
     if (!info) return;
     this.activeCodec = info.codec;
-    const decoder = this.getDecoder(info.codec, info.frames[0]?.data);
-    if (!decoder) return;
 
     for (const f of info.frames) {
+      const isKey = !!f.key;
+      if (!isKey && !this.seenKeyFrame.has(info.codec)) {
+        this.droppedCount++;
+        continue;
+      }
+      if (isKey) {
+        this.seenKeyFrame.add(info.codec);
+      }
+      const decoder = this.getDecoder(info.codec, f.data);
+      if (!decoder) continue;
       if (decoder.decodeQueueSize > 30) {
         this.droppedCount++;
         continue;
@@ -171,7 +180,7 @@ export class VideoRenderer {
       }
       try {
         const chunk = new EncodedVideoChunk({
-          type: f.key ? 'key' : 'delta',
+          type: isKey ? 'key' : 'delta',
           timestamp: ptsToNumber(f.pts),
           data,
         });
@@ -179,8 +188,18 @@ export class VideoRenderer {
         this.pendingFrames++;
       } catch (err) {
         this.onError?.(err instanceof Error ? err : new Error(String(err)));
+        this.resetDecoder(info.codec);
       }
     }
+  }
+
+  private resetDecoder(codec: string): void {
+    const d = this.decoders.get(codec);
+    if (d) {
+      try { d.close(); } catch { /* ignore */ }
+      this.decoders.delete(codec);
+    }
+    this.seenKeyFrame.delete(codec);
   }
 
   private getDecoder(codec: string, firstFrameData?: Uint8Array): VideoDecoder | null {
@@ -201,7 +220,10 @@ export class VideoRenderer {
         frame.close();
         this.pendingFrames = Math.max(0, this.pendingFrames - 1);
       },
-      error: (e: DOMException) => this.onError?.(new Error(`decoder(${codec}): ${e.message}`)),
+      error: (e: DOMException) => {
+        this.onError?.(new Error(`decoder(${codec}): ${e.message}`));
+        this.resetDecoder(codec);
+      },
     });
     try {
       decoder.configure(config);
@@ -269,6 +291,7 @@ export class VideoRenderer {
       }
     }
     this.decoders.clear();
+    this.seenKeyFrame.clear();
     this.ctx = null;
   }
 }
