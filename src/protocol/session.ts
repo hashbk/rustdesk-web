@@ -306,7 +306,7 @@ export class RemoteSession {
     const passwordHash = await computePasswordHash(this.config.password, hash.salt, hash.challenge);
     const loginMsg: MessageT = {
       loginRequest: {
-        username: '',
+        username: this.config.peerId,
         password: passwordHash,
         myId: this.myId,
         myName: this.config.myName ?? 'RustDesk Web',
