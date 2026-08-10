@@ -1,0 +1,75 @@
+import js from '@eslint/js';
+import tseslint from '@typescript-eslint/eslint-plugin';
+import tsparser from '@typescript-eslint/parser';
+import reactHooks from 'eslint-plugin-react-hooks';
+import reactRefresh from 'eslint-plugin-react-refresh';
+
+export default [
+  js.configs.recommended,
+  {
+    files: ['**/*.{ts,tsx}'],
+    languageOptions: {
+      parser: tsparser,
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: {
+        window: 'readonly',
+        document: 'readonly',
+        navigator: 'readonly',
+        WebSocket: 'readonly',
+        console: 'readonly',
+        URL: 'readonly',
+        URLSearchParams: 'readonly',
+        TextEncoder: 'readonly',
+        TextDecoder: 'readonly',
+        crypto: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
+        queueMicrotask: 'readonly',
+        AbortController: 'readonly',
+        FileReader: 'readonly',
+        Blob: 'readonly',
+        OffscreenCanvas: 'readonly',
+        ImageData: 'readonly',
+        HTMLCanvasElement: 'readonly',
+        HTMLVideoElement: 'readonly',
+        MediaSource: 'readonly',
+        MouseEvent: 'readonly',
+        KeyboardEvent: 'readonly',
+        WheelEvent: 'readonly',
+        DOMRect: 'readonly',
+        VideoDecoder: 'readonly',
+        VideoDecoderConfig: 'readonly',
+        VideoFrame: 'readonly',
+        EncodedVideoChunk: 'readonly',
+        CanvasRenderingContext2D: 'readonly',
+        DOMException: 'readonly',
+        atob: 'readonly',
+        btoa: 'readonly',
+        process: 'readonly',
+        fetch: 'readonly',
+        RequestInit: 'readonly',
+        history: 'readonly',
+        location: 'readonly',
+        React: 'readonly',
+      },
+    },
+    plugins: {
+      '@typescript-eslint': tseslint,
+      'react-hooks': reactHooks,
+      'react-refresh': reactRefresh,
+    },
+    rules: {
+      ...tseslint.configs.recommended.rules,
+      ...reactHooks.configs.recommended.rules,
+      'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+    },
+  },
+  {
+    ignores: ['dist/**', 'node_modules/**', 'src/protos/*.proto'],
+  },
+];
