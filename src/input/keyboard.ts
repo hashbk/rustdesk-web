@@ -93,6 +93,7 @@ export class KeyboardAdapter {
 
   handle(e: KeyboardEvent): boolean {
     if (e.repeat) return false;
+    if (e.isComposing) return false;
     const down = e.type === 'keydown';
     const mods = modifiers(e);
     const ck = CODE_TO_CONTROL[e.code];
@@ -109,5 +110,12 @@ export class KeyboardAdapter {
     }
 
     return false;
+  }
+
+  handleCompositionEnd(e: CompositionEvent): boolean {
+    const text = e.data;
+    if (!text || text.length === 0) return false;
+    this.send({ seq: text, down: true, mode: KeyboardMode.Legacy });
+    return true;
   }
 }
