@@ -87,10 +87,13 @@ export class StreamCipher {
 
 export async function computePasswordHash(
   password: string,
-  salt: Uint8Array,
-  challenge: Uint8Array,
+  salt: string,
+  challenge: string,
 ): Promise<Uint8Array> {
-  const pwBytes = new TextEncoder().encode(password);
-  const inner = await sha256(concatBytes(pwBytes, salt));
-  return sha256(concatBytes(inner, challenge));
+  const encoder = new TextEncoder();
+  const pwBytes = encoder.encode(password);
+  const saltBytes = encoder.encode(salt);
+  const challengeBytes = encoder.encode(challenge);
+  const inner = await sha256(concatBytes(pwBytes, saltBytes));
+  return sha256(concatBytes(inner, challengeBytes));
 }
