@@ -8,7 +8,7 @@ export interface ServerConfig {
 export interface SessionConfig {
   peerId: string;
   password?: string;
-  token?: string;
+  accessToken?: string;
   connType?: ConnType;
   myId?: string;
   myName?: string;

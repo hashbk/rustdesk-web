@@ -139,7 +139,7 @@ export class RemoteSession {
         natType: 0,
         licenceKey: this.config.server.key,
         connType: this.config.connType ?? ConnType.DEFAULT_CONN,
-        token: this.config.token ?? '',
+        token: this.config.accessToken ?? '',
         version: CLIENT_VERSION,
         forceRelay: true,
       },
@@ -183,7 +183,7 @@ export class RemoteSession {
               secure: true,
               licenceKey: this.config.server.key,
               connType: this.config.connType ?? ConnType.DEFAULT_CONN,
-              token: this.config.token ?? '',
+              token: this.config.accessToken ?? '',
             },
           };
           this.rendezvousStream!.send(encodeRendezvous(relayReq));
@@ -221,7 +221,7 @@ export class RemoteSession {
         secure: true,
         licenceKey: this.config.server.key,
         connType: this.config.connType ?? ConnType.DEFAULT_CONN,
-        token: this.config.token ?? '',
+        token: this.config.accessToken ?? '',
       },
     };
     this.relayStream.send(encodeRendezvous(relayReq));
