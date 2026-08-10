@@ -193,7 +193,6 @@ function extractH265Description(data: Uint8Array): Uint8Array | null {
       i++;
     }
   }
-  if (nalUnits.length === 0) return null;
   const vps = nalUnits.find((n) => n.type === 32);
   const sps = nalUnits.find((n) => n.type === 33);
   const pps = nalUnits.find((n) => n.type === 34);
@@ -202,39 +201,33 @@ function extractH265Description(data: Uint8Array): Uint8Array | null {
   const arrays = [vps, sps, pps];
   const numArrays = arrays.length;
   const totalNalBytes = arrays.reduce((sum, a) => sum + a.data.length, 0);
-  const buf = new Uint8Array(22 + 6 * numArrays + totalNalBytes);
+  const headerSize = 23;
+  const buf = new Uint8Array(headerSize + 5 * numArrays + totalNalBytes);
   const dv = new DataView(buf.buffer);
 
   dv.setUint8(0, 1);
-  buf[1] = sps.data[1];
-  buf[2] = sps.data[2];
-  buf[3] = sps.data[3];
-  buf[4] = sps.data[4];
-  buf[5] = sps.data[5];
-  dv.setUint8(6, 0);
-  dv.setUint8(7, 0);
-  dv.setUint8(8, 0);
-  dv.setUint8(9, 0);
-  dv.setUint8(10, 0);
-  dv.setUint8(11, 0);
-  dv.setUint16(12, 0, false);
-  dv.setUint8(14, 0);
-  dv.setUint8(15, 0);
-  dv.setUint8(16, 0);
-  dv.setUint8(17, 0);
-  dv.setUint8(18, 0);
-  dv.setUint8(19, 0);
-  dv.setUint8(20, 0);
-  dv.setUint8(21, numArrays);
+  if (sps.data.length > 14) {
+    buf[1] = sps.data[3];
+    buf[2] = sps.data[4]; buf[3] = sps.data[5]; buf[4] = sps.data[6]; buf[5] = sps.data[7];
+    buf[6] = sps.data[8]; buf[7] = sps.data[9]; buf[8] = sps.data[10]; buf[9] = sps.data[11]; buf[10] = sps.data[12]; buf[11] = sps.data[13];
+    buf[12] = sps.data[14];
+  }
+  dv.setUint16(13, 0xf000, false);
+  dv.setUint8(15, 0xfc);
+  dv.setUint8(16, 0xfc);
+  dv.setUint8(17, 0xf8);
+  dv.setUint8(18, 0xf8);
+  dv.setUint16(19, 0, false);
+  dv.setUint8(21, 0x03);
+  dv.setUint8(22, numArrays);
 
-  let offset = 22;
+  let offset = headerSize;
   for (const nal of arrays) {
-    dv.setUint8(offset, 0);
+    dv.setUint8(offset, nal.type & 0x3f);
     dv.setUint16(offset + 1, 1, false);
-    dv.setUint16(offset + 3, nal.type, false);
-    dv.setUint32(offset + 5, nal.data.length, false);
-    buf.set(nal.data, offset + 9);
-    offset += 9 + nal.data.length;
+    dv.setUint16(offset + 3, nal.data.length, false);
+    buf.set(nal.data, offset + 5);
+    offset += 5 + nal.data.length;
   }
   return buf;
 }
