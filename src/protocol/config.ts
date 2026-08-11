@@ -15,6 +15,7 @@ export interface SessionConfig {
   version?: string;
   server: ServerConfig;
   codecPreference?: CodecPreference;
+  imageQuality?: ImageQuality;
 }
 
 export enum CodecPreference {
@@ -24,6 +25,13 @@ export enum CodecPreference {
   H265 = 3,
   VP8 = 4,
   AV1 = 5,
+}
+
+export enum ImageQuality {
+  NotSet = 0,
+  Low = 2,
+  Balanced = 3,
+  Best = 4,
 }
 
 export enum ConnType {

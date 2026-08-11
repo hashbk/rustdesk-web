@@ -13,7 +13,7 @@ import {
   type VideoFrameT,
   type HashT,
 } from '../protos';
-import { ConnType, rendezvousWsUrl, relayWsUrl, type SessionConfig, type ServerConfig, CodecPreference } from './config';
+import { ConnType, rendezvousWsUrl, relayWsUrl, type SessionConfig, type ServerConfig, CodecPreference, ImageQuality } from './config';
 import { detectCodecAbilities } from '../media/renderer';
 
 export type SessionState =
@@ -320,7 +320,7 @@ export class RemoteSession {
         version: CLIENT_VERSION,
         myPlatform: 'Web',
         option: {
-          imageQuality: 3,
+          imageQuality: this.config.imageQuality ?? ImageQuality.Balanced,
           supportedDecoding: {
             abilityVp9: abilities.vp9 ? 1 : 0,
             abilityH264: abilities.h264 ? 1 : 0,
@@ -435,6 +435,24 @@ export class RemoteSession {
 
   getCodecAbilities() {
     return this.codecAbilities;
+  }
+
+  sendImageQuality(quality: ImageQuality): void {
+    if (this.state !== 'connected') return;
+    const msg: MessageT = {
+      misc: { option: { imageQuality: quality } },
+    };
+    this.relayStream?.send(encodeMessage(msg));
+    this.log(`image quality set: ${ImageQuality[quality] ?? quality}`);
+  }
+
+  sendCustomImageQuality(quality: number): void {
+    if (this.state !== 'connected') return;
+    const msg: MessageT = {
+      misc: { option: { customImageQuality: quality << 8 } },
+    };
+    this.relayStream?.send(encodeMessage(msg));
+    this.log(`custom image quality set: ${quality}`);
   }
 
   close(): void {

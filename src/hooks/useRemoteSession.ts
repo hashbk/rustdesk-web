@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { RemoteSession, type SessionState, type SessionEvents } from '../protocol/session';
-import { type SessionConfig, CodecPreference } from '../protocol/config';
+import { type SessionConfig, CodecPreference, ImageQuality } from '../protocol/config';
 import type { PeerInfoT, VideoFrameT, MessageT } from '../protos';
 import { AudioPlayer } from '../media/AudioPlayer';
 import type { CodecAbilities } from '../media/renderer';
@@ -32,6 +32,7 @@ export interface RemoteSessionHook {
   audioEnabled: boolean;
   codecPreference: CodecPreference;
   codecAbilities: CodecAbilities | null;
+  imageQuality: ImageQuality;
   connect: (config: SessionConfig) => void;
   send2fa: (code: string) => void;
   close: () => void;
@@ -39,6 +40,8 @@ export interface RemoteSessionHook {
   sendKey: (event: NonNullable<MessageT['keyEvent']>) => void;
   setMuted: (muted: boolean) => void;
   setCodecPreference: (prefer: CodecPreference) => void;
+  setImageQuality: (quality: ImageQuality) => void;
+  setCustomImageQuality: (quality: number) => void;
 }
 
 export function useRemoteSession(): RemoteSessionHook {
@@ -55,6 +58,7 @@ export function useRemoteSession(): RemoteSessionHook {
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [codecPreference, setCodecPreferenceState] = useState<CodecPreference>(CodecPreference.Auto);
   const [codecAbilities, setCodecAbilities] = useState<CodecAbilities | null>(null);
+  const [imageQuality, setImageQualityState] = useState<ImageQuality>(ImageQuality.Balanced);
   const seqRef = useRef(0);
   const audioPlayerRef = useRef<AudioPlayer | null>(null);
   const mutedRef = useRef(false);
@@ -153,6 +157,16 @@ export function useRemoteSession(): RemoteSessionHook {
     sessionRef.current?.sendCodecPreference(prefer);
   }, []);
 
+  const setImageQuality = useCallback((quality: ImageQuality) => {
+    setImageQualityState(quality);
+    sessionRef.current?.sendImageQuality(quality);
+  }, []);
+
+  const setCustomImageQuality = useCallback((quality: number) => {
+    setImageQualityState(ImageQuality.NotSet);
+    sessionRef.current?.sendCustomImageQuality(quality);
+  }, []);
+
   useEffect(() => {
     return () => {
       sessionRef.current?.close();
@@ -173,6 +187,7 @@ export function useRemoteSession(): RemoteSessionHook {
     audioEnabled,
     codecPreference,
     codecAbilities,
+    imageQuality,
     connect,
     send2fa,
     close,
@@ -180,5 +195,7 @@ export function useRemoteSession(): RemoteSessionHook {
     sendKey,
     setMuted,
     setCodecPreference,
+    setImageQuality,
+    setCustomImageQuality,
   };
 }

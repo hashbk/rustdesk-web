@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { type SessionConfig, CodecPreference } from '../protocol/config';
+import { type SessionConfig, CodecPreference, ImageQuality } from '../protocol/config';
 import { useRemoteSession } from '../hooks/useRemoteSession';
 import { RemoteScreen } from '../components/RemoteScreen';
 import { checkWebCodecsSupport, type RenderStats } from '../media/renderer';
@@ -126,6 +126,19 @@ export function SessionPage({ config, onExit }: Props) {
             <option value={CodecPreference.H264} disabled={!session.codecAbilities.h264}>H264</option>
             <option value={CodecPreference.H265} disabled={!session.codecAbilities.h265}>H265</option>
             <option value={CodecPreference.VP8} disabled={!session.codecAbilities.vp8}>VP8</option>
+          </select>
+        )}
+        {connected && (
+          <select
+            className="btn"
+            value={session.imageQuality}
+            onChange={(e) => session.setImageQuality(Number(e.target.value) as ImageQuality)}
+            title="图像质量"
+            style={{ padding: '4px 8px' }}
+          >
+            <option value={ImageQuality.Best}>最佳</option>
+            <option value={ImageQuality.Balanced}>平衡</option>
+            <option value={ImageQuality.Low}>低</option>
           </select>
         )}
         <button className="btn" onClick={() => setShowLogs((v) => !v)}>
