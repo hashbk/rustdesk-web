@@ -19,6 +19,7 @@ import { ConnType, CodecPreference, ImageQuality, type SessionConfig } from '../
 import type { MessageT } from '../protos';
 import { BridgeContext } from './context';
 import { getCachedCodecAbilities } from './init';
+import { createMainHandlers, type MainHandlerRegistry } from './main-handlers';
 import type {
   SetRegistry,
   GetRegistry,
@@ -688,6 +689,9 @@ function sessionOptionToMessage(name: string, value: string): SessionOptionMessa
 /**
  * Create a bound setByName/getByName pair for the given context.
  * Unknown keys log a console warning and no-op (never throw).
+ *
+ * Keys prefixed with `main_` are routed to the main-handlers registry
+ * (154 methods covering config, address-book, identity, codec, etc.).
  */
 export function createDispatcher(ctx: BridgeContext): {
   setByName: (name: string, value?: string) => void;
@@ -695,10 +699,22 @@ export function createDispatcher(ctx: BridgeContext): {
 } {
   const setRegistry = createSetRegistry(ctx);
   const getRegistry = createGetRegistry(ctx);
-
+  const mainHandlers: MainHandlerRegistry = createMainHandlers(ctx);
 
   return {
     setByName(name: string, value: string = ''): void {
+      // Route main_* keys to the main handlers.
+      if (name.startsWith('main_')) {
+        const handler = mainHandlers[name];
+        if (handler) {
+          try {
+            handler(value);
+          } catch (err) {
+            console.error(`[bridge] setByName("${name}") threw:`, err);
+          }
+          return;
+        }
+      }
       const handler = setRegistry[name];
       if (handler) {
         try {
@@ -711,6 +727,18 @@ export function createDispatcher(ctx: BridgeContext): {
       }
     },
     getByName(name: string, arg: string = ''): string {
+      // Route main_* keys to the main handlers.
+      if (name.startsWith('main_')) {
+        const handler = mainHandlers[name];
+        if (handler) {
+          try {
+            return handler(arg);
+          } catch (err) {
+            console.error(`[bridge] getByName("${name}") threw:`, err);
+            return '';
+          }
+        }
+      }
       const handler = getRegistry[name];
       if (handler) {
         try {
