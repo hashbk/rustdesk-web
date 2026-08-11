@@ -10,3 +10,16 @@ client performs the actual remote assistance from a browser.
 ## Status
 
 Bootstrapping.
+
+## Setup
+
+This repository uses a git submodule to track upstream proto definitions from
+[`rustdesk/hbb_common`](https://github.com/rustdesk/hbb_common). After cloning,
+initialize the submodule:
+
+```bash
+git submodule update --init
+```
+
+The proto files are sourced from `vendor/hbb_common/protos/` via the `@proto`
+Vite alias and are not copied into `src/`.
