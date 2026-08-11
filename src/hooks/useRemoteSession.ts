@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { RemoteSession, type SessionState, type SessionEvents } from '../protocol/session';
+import { RemoteSession, type SessionState, type SessionEvents, PrivacyModeState, type PrivacyModeNotification } from '../protocol/session';
 import { type SessionConfig, CodecPreference, ImageQuality } from '../protocol/config';
 import type { PeerInfoT, VideoFrameT, MessageT } from '../protos';
 import { AudioPlayer } from '../media/AudioPlayer';
@@ -66,6 +66,10 @@ export interface RemoteSessionHook {
   sendElevationRequest: (direct: boolean) => void;
   sendElevationWithLogon: (username: string, password: string) => void;
   dismissElevationResponse: () => void;
+  privacyMode: boolean;
+  privacyModeMessage: string | null;
+  togglePrivacyMode: () => void;
+  dismissPrivacyModeMessage: () => void;
 }
 
 export function useRemoteSession(): RemoteSessionHook {
@@ -93,6 +97,8 @@ export function useRemoteSession(): RemoteSessionHook {
   const [remoteDir, setRemoteDir] = useState<RemoteDir | null>(null);
   const [transfers, setTransfers] = useState<TransferProgress[]>([]);
   const [elevationResponse, setElevationResponse] = useState<string | null>(null);
+  const [privacyMode, setPrivacyMode] = useState(false);
+  const [privacyModeMessage, setPrivacyModeMessage] = useState<string | null>(null);
   const clipboardSyncRef = useRef(false);
 
   const pushLog = useCallback((msg: string) => {
@@ -111,6 +117,8 @@ export function useRemoteSession(): RemoteSessionHook {
       setLatency(null);
       setMessageBox(null);
       setElevationResponse(null);
+      setPrivacyMode(false);
+      setPrivacyModeMessage(null);
 
       const session = new RemoteSession(config);
       sessionRef.current = session;
@@ -176,6 +184,23 @@ export function useRemoteSession(): RemoteSessionHook {
         },
         closeReason: (reason) => setCloseReason(reason),
         elevationResponse: (resp) => setElevationResponse(resp),
+        privacyModeState: (notification: PrivacyModeNotification) => {
+          const msg = privacyModeMessageText(notification);
+          setPrivacyModeMessage(msg);
+          if (notification.state === PrivacyModeState.PrvOnSucceeded) {
+            setPrivacyMode(true);
+          } else if (
+            notification.state === PrivacyModeState.PrvOffSucceeded ||
+            notification.state === PrivacyModeState.PrvOffByPeer ||
+            notification.state === PrivacyModeState.PrvNotSupported ||
+            notification.state === PrivacyModeState.PrvOnFailedDenied ||
+            notification.state === PrivacyModeState.PrvOnFailedPlugin ||
+            notification.state === PrivacyModeState.PrvOnFailed ||
+            notification.state === PrivacyModeState.PrvOffFailed
+          ) {
+            setPrivacyMode(false);
+          }
+        },
         log: pushLog,
       };
       for (const [k, fn] of Object.entries(handlers)) {
@@ -278,6 +303,13 @@ export function useRemoteSession(): RemoteSessionHook {
 
   const dismissElevationResponse = useCallback(() => setElevationResponse(null), []);
 
+  const togglePrivacyMode = useCallback(() => {
+    setPrivacyModeMessage(null);
+    sessionRef.current?.sendPrivacyMode(!privacyMode);
+  }, [privacyMode]);
+
+  const dismissPrivacyModeMessage = useCallback(() => setPrivacyModeMessage(null), []);
+
 
   useEffect(() => {
     return () => {
@@ -325,5 +357,36 @@ export function useRemoteSession(): RemoteSessionHook {
     sendElevationRequest,
     sendElevationWithLogon,
     dismissElevationResponse,
+    privacyMode,
+    privacyModeMessage,
+    togglePrivacyMode,
+    dismissPrivacyModeMessage,
   };
+}
+
+function privacyModeMessageText(notification: PrivacyModeNotification): string {
+  switch (notification.state) {
+    case PrivacyModeState.PrvOnByOther:
+      return 'Someone turns on privacy mode, exit';
+    case PrivacyModeState.PrvNotSupported:
+      return 'Privacy mode is not supported on the remote side';
+    case PrivacyModeState.PrvOnSucceeded:
+      return 'Enter privacy mode';
+    case PrivacyModeState.PrvOnFailedDenied:
+      return 'Privacy mode was denied';
+    case PrivacyModeState.PrvOnFailedPlugin:
+      return 'Privacy mode plugin not found';
+    case PrivacyModeState.PrvOnFailed:
+      return notification.details || 'Privacy mode failed to turn on';
+    case PrivacyModeState.PrvOffSucceeded:
+      return 'Exit privacy mode';
+    case PrivacyModeState.PrvOffByPeer:
+      return 'Privacy mode off by peer';
+    case PrivacyModeState.PrvOffFailed:
+      return notification.details || 'Privacy mode failed to turn off';
+    case PrivacyModeState.PrvOffUnknown:
+      return 'Privacy mode off (unknown state)';
+    default:
+      return 'Privacy mode state unknown';
+  }
 }
