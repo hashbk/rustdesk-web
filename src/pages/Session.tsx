@@ -289,6 +289,15 @@ export function SessionPage({ config, onExit }: Props) {
             {session.clipboardSync ? '剪贴板✓' : '剪贴板'}
           </button>
         )}
+        {connected && session.peerInfo?.features?.privacyMode && (
+          <button
+            className="btn"
+            onClick={session.togglePrivacyMode}
+            title="隐私模式 (隐藏远程屏幕)"
+          >
+            {session.privacyMode ? '隐私模式✓' : '隐私模式'}
+          </button>
+        )}
         {connected && (
           <button
             className="btn"
@@ -491,6 +500,23 @@ export function SessionPage({ config, onExit }: Props) {
             <button
               className="btn btn-primary"
               onClick={session.dismissElevationResponse}
+            >
+              确定
+            </button>
+          </div>
+        </div>
+      )}
+
+      {session.privacyModeMessage !== null && (
+        <div className="modal-overlay" onClick={session.dismissPrivacyModeMessage}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 12px' }}>隐私模式</h3>
+            <p style={{ margin: '0 0 16px', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+              {session.privacyModeMessage}
+            </p>
+            <button
+              className="btn btn-primary"
+              onClick={session.dismissPrivacyModeMessage}
             >
               确定
             </button>
