@@ -59,10 +59,31 @@ export class AudioPlayer {
     const frames = data.numberOfFrames;
     const ch = data.numberOfChannels;
     const buf = this.ctx.createBuffer(ch, frames, data.sampleRate);
-    for (let c = 0; c < ch; c++) {
-      const channel = buf.getChannelData(c);
-      data.copyTo(channel, { planeIndex: c });
+    const format = data.format ?? undefined;
+    const isPlanar = format ? format.includes('planar') : true;
+
+    if (isPlanar) {
+      for (let c = 0; c < ch; c++) {
+        const channel = buf.getChannelData(c);
+        const size = data.allocationSize({ planeIndex: c });
+        if (size === channel.byteLength) {
+          data.copyTo(channel, { planeIndex: c });
+        } else {
+          const temp = new ArrayBuffer(size);
+          data.copyTo(new DataView(temp), { planeIndex: c });
+          this.copyToChannel(channel, temp, format, frames);
+        }
+      }
+    } else {
+      const size = data.allocationSize({ planeIndex: 0 });
+      const temp = new ArrayBuffer(size);
+      data.copyTo(new DataView(temp), { planeIndex: 0 });
+      for (let c = 0; c < ch; c++) {
+        const channel = buf.getChannelData(c);
+        this.deinterleaveToChannel(channel, temp, format, frames, ch, c);
+      }
     }
+
     const src = this.ctx.createBufferSource();
     src.buffer = buf;
     src.connect(this.gainNode);
@@ -71,6 +92,32 @@ export class AudioPlayer {
     src.start(this.nextTime);
     this.nextTime += frames / data.sampleRate;
     data.close();
+  }
+
+  private copyToChannel(channel: Float32Array, raw: ArrayBuffer, format: string | undefined, frames: number): void {
+    if (format === 's16-planar') {
+      const view = new Int16Array(raw);
+      for (let i = 0; i < frames; i++) channel[i] = view[i] / 32768;
+    } else if (format === 's32-planar') {
+      const view = new Int32Array(raw);
+      for (let i = 0; i < frames; i++) channel[i] = view[i] / 2147483648;
+    } else {
+      const view = new Float32Array(raw);
+      channel.set(view.subarray(0, frames));
+    }
+  }
+
+  private deinterleaveToChannel(channel: Float32Array, raw: ArrayBuffer, format: string | undefined, frames: number, ch: number, c: number): void {
+    if (format === 's16') {
+      const view = new Int16Array(raw);
+      for (let i = 0; i < frames; i++) channel[i] = view[i * ch + c] / 32768;
+    } else if (format === 's32') {
+      const view = new Int32Array(raw);
+      for (let i = 0; i < frames; i++) channel[i] = view[i * ch + c] / 2147483648;
+    } else {
+      const view = new Float32Array(raw);
+      for (let i = 0; i < frames; i++) channel[i] = view[i * ch + c];
+    }
   }
 
   handleFrame(data: Uint8Array): void {
