@@ -36,6 +36,10 @@ export function SessionPage({ config, onExit }: Props) {
   const [toolbarVisible, setToolbarVisible] = useState(true);
   const [showFileManager, setShowFileManager] = useState(false);
   const [showTerminal, setShowTerminal] = useState(false);
+  const [showElevationDialog, setShowElevationDialog] = useState(false);
+  const [elevationMode, setElevationMode] = useState<'direct' | 'logon'>('direct');
+  const [elevationUsername, setElevationUsername] = useState('');
+  const [elevationPassword, setElevationPassword] = useState('');
   const pageRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const configRef = useRef(config);
@@ -249,6 +253,15 @@ export function SessionPage({ config, onExit }: Props) {
             <option value="original">原始尺寸</option>
           </select>
         )}
+        {connected && session.peerInfo?.platform === 'Windows' && (
+          <button
+            className="btn"
+            onClick={() => setShowElevationDialog(true)}
+            title="请求 UAC 提权"
+          >
+            提权
+          </button>
+        )}
         {connected && (
           <button
             className="btn"
@@ -384,6 +397,100 @@ export function SessionPage({ config, onExit }: Props) {
             <button
               className="btn btn-primary"
               onClick={session.dismissMessageBox}
+            >
+              确定
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showElevationDialog && (
+        <div className="modal-overlay" onClick={() => setShowElevationDialog(false)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 16px' }}>请求 UAC 提权</h3>
+            <div className="field">
+              <label>
+                <input
+                  type="radio"
+                  checked={elevationMode === 'direct'}
+                  onChange={() => setElevationMode('direct')}
+                  style={{ marginRight: 8 }}
+                />
+                直接提权
+              </label>
+              <label style={{ marginTop: 8, display: 'block' }}>
+                <input
+                  type="radio"
+                  checked={elevationMode === 'logon'}
+                  onChange={() => setElevationMode('logon')}
+                  style={{ marginRight: 8 }}
+                />
+                使用账号密码提权
+              </label>
+            </div>
+            {elevationMode === 'logon' && (
+              <>
+                <div className="field">
+                  <label>用户名</label>
+                  <input
+                    className="input"
+                    value={elevationUsername}
+                    onChange={(e) => setElevationUsername(e.target.value)}
+                    placeholder="管理员用户名"
+                    autoFocus
+                  />
+                </div>
+                <div className="field">
+                  <label>密码</label>
+                  <input
+                    className="input"
+                    type="password"
+                    value={elevationPassword}
+                    onChange={(e) => setElevationPassword(e.target.value)}
+                    placeholder="管理员密码"
+                  />
+                </div>
+              </>
+            )}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="btn" onClick={() => setShowElevationDialog(false)}>
+                取消
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  if (elevationMode === 'direct') {
+                    session.sendElevationRequest(true);
+                  } else {
+                    if (!elevationUsername || !elevationPassword) return;
+                    session.sendElevationWithLogon(elevationUsername, elevationPassword);
+                  }
+                  setShowElevationDialog(false);
+                  setElevationUsername('');
+                  setElevationPassword('');
+                }}
+              >
+                确定
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {session.elevationResponse !== null && (
+        <div className="modal-overlay" onClick={session.dismissElevationResponse}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 12px' }}>
+              {session.elevationResponse === '' ? '等待 UAC' : '提权错误'}
+            </h3>
+            <p style={{ margin: '0 0 16px', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+              {session.elevationResponse === ''
+                ? '请在远程主机上确认 UAC 提权请求…'
+                : session.elevationResponse}
+            </p>
+            <button
+              className="btn btn-primary"
+              onClick={session.dismissElevationResponse}
             >
               确定
             </button>

@@ -62,6 +62,10 @@ export interface RemoteSessionHook {
   cancelTransfer: (id: number) => void;
   remoteDir: RemoteDir | null;
   transfers: TransferProgress[];
+  elevationResponse: string | null;
+  sendElevationRequest: (direct: boolean) => void;
+  sendElevationWithLogon: (username: string, password: string) => void;
+  dismissElevationResponse: () => void;
 }
 
 export function useRemoteSession(): RemoteSessionHook {
@@ -88,6 +92,7 @@ export function useRemoteSession(): RemoteSessionHook {
   const ftmRef = useRef<FileTransferManager | null>(null);
   const [remoteDir, setRemoteDir] = useState<RemoteDir | null>(null);
   const [transfers, setTransfers] = useState<TransferProgress[]>([]);
+  const [elevationResponse, setElevationResponse] = useState<string | null>(null);
   const clipboardSyncRef = useRef(false);
 
   const pushLog = useCallback((msg: string) => {
@@ -105,6 +110,7 @@ export function useRemoteSession(): RemoteSessionHook {
       setCursorPosition(null);
       setLatency(null);
       setMessageBox(null);
+      setElevationResponse(null);
 
       const session = new RemoteSession(config);
       sessionRef.current = session;
@@ -169,6 +175,7 @@ export function useRemoteSession(): RemoteSessionHook {
           pushLog(`error: ${e.message}`);
         },
         closeReason: (reason) => setCloseReason(reason),
+        elevationResponse: (resp) => setElevationResponse(resp),
         log: pushLog,
       };
       for (const [k, fn] of Object.entries(handlers)) {
@@ -261,6 +268,16 @@ export function useRemoteSession(): RemoteSessionHook {
     ftmRef.current?.cancelTransfer(id);
   }, []);
 
+  const sendElevationRequest = useCallback((direct: boolean) => {
+    sessionRef.current?.sendElevationRequest(direct);
+  }, []);
+
+  const sendElevationWithLogon = useCallback((username: string, password: string) => {
+    sessionRef.current?.sendElevationWithLogon(username, password);
+  }, []);
+
+  const dismissElevationResponse = useCallback(() => setElevationResponse(null), []);
+
 
   useEffect(() => {
     return () => {
@@ -304,5 +321,9 @@ export function useRemoteSession(): RemoteSessionHook {
     cancelTransfer,
     remoteDir,
     transfers,
+    elevationResponse,
+    sendElevationRequest,
+    sendElevationWithLogon,
+    dismissElevationResponse,
   };
 }

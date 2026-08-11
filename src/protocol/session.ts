@@ -40,6 +40,7 @@ export interface SessionEvents {
   switchDisplay: (display: unknown) => void;
   fileResponse: (resp: NonNullable<MessageT['fileResponse']>) => void;
   terminalResponse: (resp: NonNullable<MessageT['terminalResponse']>) => void;
+  elevationResponse: (response: string) => void;
   need2fa: () => void;
   closeReason: (reason: string) => void;
   error: (error: Error) => void;
@@ -455,6 +456,24 @@ export class RemoteSession {
     this.log(`switched to display ${display}`);
   }
 
+  sendElevationRequest(direct: boolean): void {
+    if (this.state !== 'connected') return;
+    const msg: MessageT = {
+      misc: { elevation_request: { direct } },
+    };
+    this.relayStream?.send(encodeMessage(msg));
+    this.log(`elevation request sent (direct=${direct})`);
+  }
+
+  sendElevationWithLogon(username: string, password: string): void {
+    if (this.state !== 'connected') return;
+    const msg: MessageT = {
+      misc: { elevation_request: { logon: { username, password } } },
+    };
+    this.relayStream?.send(encodeMessage(msg));
+    this.log('elevation request sent (with logon)');
+  }
+
   sendCodecPreference(prefer: CodecPreference): void {
     if (this.state !== 'connected' || !this.codecAbilities) return;
     const a = this.codecAbilities;
@@ -506,6 +525,9 @@ export class RemoteSession {
     if (misc.switchDisplay) this.emit('switchDisplay', misc.switchDisplay);
     if (misc.refreshVideo) this.log('peer requested video refresh');
     if (misc.backNotification) this.log('back notification received');
+    if (misc.elevation_response !== undefined) {
+      this.emit('elevationResponse', misc.elevation_response as string);
+    }
   }
 
   private handleRefresh(): void {
