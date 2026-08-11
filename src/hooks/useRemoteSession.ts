@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { RemoteSession, type SessionState, type SessionEvents, PrivacyModeState, type PrivacyModeNotification, type SessionOptionMessage, boolToOption } from '../protocol/session';
+import { RemoteSession, type SessionState, type SessionEvents, PrivacyModeState, type PrivacyModeNotification, BlockInputState, type BlockInputNotification, type SessionOptionMessage, boolToOption } from '../protocol/session';
 import { type SessionConfig, CodecPreference, ImageQuality } from '../protocol/config';
 import type { PeerInfoT, VideoFrameT, MessageT } from '../protos';
 import { AudioPlayer } from '../media/AudioPlayer';
@@ -71,6 +71,10 @@ export interface RemoteSessionHook {
   privacyModeMessage: string | null;
   togglePrivacyMode: () => void;
   dismissPrivacyModeMessage: () => void;
+  blockInput: boolean;
+  blockInputMessage: string | null;
+  toggleBlockInput: () => void;
+  dismissBlockInputMessage: () => void;
   showRemoteCursor: boolean;
   lockAfterSessionEnd: boolean;
   followRemoteCursor: boolean;
@@ -118,6 +122,8 @@ export function useRemoteSession(): RemoteSessionHook {
   const [elevationResponse, setElevationResponse] = useState<string | null>(null);
   const [privacyMode, setPrivacyMode] = useState(false);
   const [privacyModeMessage, setPrivacyModeMessage] = useState<string | null>(null);
+  const [blockInput, setBlockInput] = useState(false);
+  const [blockInputMessage, setBlockInputMessage] = useState<string | null>(null);
   const clipboardSyncRef = useRef(false);
   const [showRemoteCursor, setShowRemoteCursorState] = useState(false);
   const [lockAfterSessionEnd, setLockAfterSessionEndState] = useState(false);
@@ -148,6 +154,8 @@ export function useRemoteSession(): RemoteSessionHook {
       setElevationResponse(null);
       setPrivacyMode(false);
       setPrivacyModeMessage(null);
+      setBlockInput(false);
+      setBlockInputMessage(null);
 
       const session = new RemoteSession(config);
       session.setInitialOptions(sessionOptionsRef.current);
@@ -229,6 +237,19 @@ export function useRemoteSession(): RemoteSessionHook {
             notification.state === PrivacyModeState.PrvOffFailed
           ) {
             setPrivacyMode(false);
+          }
+        },
+        blockInputState: (notification: BlockInputNotification) => {
+          const msg = blockInputMessageText(notification);
+          setBlockInputMessage(msg);
+          if (notification.state === BlockInputState.BlkOnSucceeded) {
+            setBlockInput(true);
+          } else if (
+            notification.state === BlockInputState.BlkOffSucceeded ||
+            notification.state === BlockInputState.BlkOnFailed ||
+            notification.state === BlockInputState.BlkOffFailed
+          ) {
+            setBlockInput(false);
           }
         },
         log: pushLog,
@@ -344,6 +365,13 @@ export function useRemoteSession(): RemoteSessionHook {
 
   const dismissPrivacyModeMessage = useCallback(() => setPrivacyModeMessage(null), []);
 
+  const toggleBlockInput = useCallback(() => {
+    setBlockInputMessage(null);
+    sessionRef.current?.sendBlockInput(!blockInput);
+  }, [blockInput]);
+
+  const dismissBlockInputMessage = useCallback(() => setBlockInputMessage(null), []);
+
   const toggleBoolOption = useCallback(
     (key: keyof SessionOptionMessage, enabled: boolean): void => {
       const value = boolToOption(enabled);
@@ -452,6 +480,10 @@ export function useRemoteSession(): RemoteSessionHook {
     privacyModeMessage,
     togglePrivacyMode,
     dismissPrivacyModeMessage,
+    blockInput,
+    blockInputMessage,
+    toggleBlockInput,
+    dismissBlockInputMessage,
     showRemoteCursor,
     lockAfterSessionEnd,
     followRemoteCursor,
@@ -497,5 +529,20 @@ function privacyModeMessageText(notification: PrivacyModeNotification): string {
       return 'Privacy mode off (unknown state)';
     default:
       return 'Privacy mode state unknown';
+  }
+}
+
+function blockInputMessageText(notification: BlockInputNotification): string {
+  switch (notification.state) {
+    case BlockInputState.BlkOnSucceeded:
+      return 'Block input succeeded';
+    case BlockInputState.BlkOnFailed:
+      return notification.details || 'Block input failed to turn on';
+    case BlockInputState.BlkOffSucceeded:
+      return 'Unblock input succeeded';
+    case BlockInputState.BlkOffFailed:
+      return notification.details || 'Block input failed to turn off';
+    default:
+      return 'Block input state unknown';
   }
 }
