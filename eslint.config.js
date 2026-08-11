@@ -67,6 +67,8 @@ export default [
         location: 'readonly',
         React: 'readonly',
         ResizeObserver: 'readonly',
+        localStorage: 'readonly',
+        __BRIDGE_BUILD_DATE__: 'readonly',
       },
     },
     plugins: {
