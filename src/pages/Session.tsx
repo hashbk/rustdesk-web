@@ -91,6 +91,13 @@ export function SessionPage({ config, onExit }: Props) {
             {stats.droppedFrames > 0 && ` · 丢${stats.droppedFrames}`}
           </span>
         )}
+        {connected && session.latency !== null && (
+          <span className="info" style={{
+            color: session.latency < 50 ? 'var(--ok)' : session.latency < 150 ? 'var(--text-dim)' : 'var(--danger)',
+          }}>
+            {session.latency}ms
+          </span>
+        )}
         {reconnectAttempt > 0 && session.state !== 'connected' && (
           <span className="info">重连中 ({reconnectAttempt}/3)</span>
         )}

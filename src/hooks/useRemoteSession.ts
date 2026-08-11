@@ -28,6 +28,7 @@ export interface RemoteSessionHook {
   videoFrame: { frame: VideoFrameT; seq: number } | null;
   cursorData: CursorData | null;
   cursorPosition: CursorPosition | null;
+  latency: number | null;
   muted: boolean;
   audioEnabled: boolean;
   codecPreference: CodecPreference;
@@ -51,6 +52,7 @@ export function useRemoteSession(): RemoteSessionHook {
   const [videoFrame, setVideoFrame] = useState<{ frame: VideoFrameT; seq: number } | null>(null);
   const [cursorData, setCursorData] = useState<CursorData | null>(null);
   const [cursorPosition, setCursorPosition] = useState<CursorPosition | null>(null);
+  const [latency, setLatency] = useState<number | null>(null);
   const [muted, setMutedState] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [codecPreference, setCodecPreferenceState] = useState<CodecPreference>(CodecPreference.Auto);
@@ -72,6 +74,7 @@ export function useRemoteSession(): RemoteSessionHook {
       setLogs([]);
       setCursorData(null);
       setCursorPosition(null);
+      setLatency(null);
 
       const session = new RemoteSession(config);
       sessionRef.current = session;
@@ -98,6 +101,7 @@ export function useRemoteSession(): RemoteSessionHook {
         cursorPosition: (pos) => {
           setCursorPosition({ x: pos.x ?? 0, y: pos.y ?? 0 });
         },
+        latency: (ms) => setLatency(ms),
         audioFormat: async (fmt) => {
           const sr = fmt.sampleRate ?? 48000;
           const ch = fmt.channels ?? 2;
@@ -169,6 +173,7 @@ export function useRemoteSession(): RemoteSessionHook {
     videoFrame,
     cursorData,
     cursorPosition,
+    latency,
     muted,
     audioEnabled,
     codecPreference,
