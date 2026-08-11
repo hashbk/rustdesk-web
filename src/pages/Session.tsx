@@ -38,6 +38,7 @@ export function SessionPage({ config, onExit }: Props) {
   }, []);
 
   useEffect(() => {
+
     if (session.state === 'closed' && !session.error && reconnectAttempt < 3) {
       const timer = setTimeout(() => {
         setReconnectAttempt((n) => n + 1);
@@ -52,6 +53,21 @@ export function SessionPage({ config, onExit }: Props) {
   const busy = ['connecting-rendezvous', 'connecting-relay', 'handshaking', 'logging-in'].includes(
     session.state,
   );
+
+  useEffect(() => {
+    if (!connected || !session.clipboardSync) return;
+    const onCopy = (e: ClipboardEvent) => {
+      const text = e.clipboardData?.getData('text') ?? '';
+      if (text) session.sendClipboard(text);
+    };
+    document.addEventListener('copy', onCopy);
+    document.addEventListener('cut', onCopy);
+    return () => {
+      document.removeEventListener('copy', onCopy);
+      document.removeEventListener('cut', onCopy);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected, session.clipboardSync]);
 
   if (!codecSupport.available && connected) {
     return (
@@ -140,6 +156,15 @@ export function SessionPage({ config, onExit }: Props) {
             <option value={ImageQuality.Balanced}>平衡</option>
             <option value={ImageQuality.Low}>低</option>
           </select>
+        )}
+        {connected && (
+          <button
+            className="btn"
+            onClick={() => session.setClipboardSync(!session.clipboardSync)}
+            title="剪贴板同步"
+          >
+            {session.clipboardSync ? '剪贴板✓' : '剪贴板'}
+          </button>
         )}
         <button className="btn" onClick={() => setShowLogs((v) => !v)}>
           {showLogs ? '隐藏日志' : '日志'}
