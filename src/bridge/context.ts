@@ -10,6 +10,7 @@
 
 import { RemoteSession, type SessionEvents, type SessionOptionMessage } from '../protocol/session';
 import { FileTransferManager } from '../protocol/file_transfer';
+import { attachSessionCallbacks } from './callbacks';
 
 import type { ConnStatus, ServerConfigLike } from './types';
 
@@ -152,6 +153,10 @@ export class BridgeContext {
     for (const [k, fn] of Object.entries(this.sessionListeners)) {
       session.on(k as keyof SessionEvents, fn as never);
     }
+
+    // Wire session events → window.onGlobalEvent / onRgba / onVideoFrame.
+    // Display index defaults to 0; switch_display events will update it.
+    attachSessionCallbacks(session, 0);
 
     this.ftm = new FileTransferManager(
       (a) => session.sendFileAction(a),
