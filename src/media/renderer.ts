@@ -246,6 +246,15 @@ export class VideoRenderer {
   private fpsLastTs = Date.now();
   private fps = 0;
   private onStats?: (stats: RenderStats) => void;
+  /** Display index this renderer is responsible for (passed to onDecodedFrame). */
+  private displayIndex = 0;
+  /**
+   * Optional zero-readback callback.  When set, decoded VideoFrames are
+   * forwarded here instead of being drawn to the canvas.  This enables the
+   * `window.onVideoFrame` GPU-to-GPU path (see web_model.dart
+   * `setVideoFrameCallback`).
+   */
+  onDecodedFrame?: (display: number, frame: VideoFrame) => void;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -257,6 +266,11 @@ export class VideoRenderer {
     if (onStats) {
       setInterval(() => this.reportStats(), 500);
     }
+  }
+
+  /** Set the display index (passed to onDecodedFrame). */
+  setDisplayIndex(display: number): void {
+    this.displayIndex = display;
   }
 
   setDisplaySize(width: number, height: number): void {
@@ -324,8 +338,20 @@ export class VideoRenderer {
     }
     decoder = new VideoDecoder({
       output: (frame: VideoFrame) => {
-        this.drawFrame(frame);
-        frame.close();
+        if (this.onDecodedFrame) {
+          // Zero-readback path: forward the decoded VideoFrame to the
+          // registered callback (window.onVideoFrame).  The callback is
+          // responsible for closing the frame.
+          try {
+            this.onDecodedFrame(this.displayIndex, frame);
+          } catch (err) {
+            this.onError?.(err instanceof Error ? err : new Error(String(err)));
+            try { frame.close(); } catch { /* ignore */ }
+          }
+        } else {
+          this.drawFrame(frame);
+          frame.close();
+        }
         this.pendingFrames = Math.max(0, this.pendingFrames - 1);
       },
       error: (e: DOMException) => this.onError?.(new Error(`decoder(${codec}): ${e.message}`)),

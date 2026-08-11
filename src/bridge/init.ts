@@ -11,6 +11,7 @@ import { initCrypto } from '../protocol/crypto';
 import { detectCodecAbilities, type CodecAbilities } from '../media/renderer';
 import type { BridgeContext } from './context';
 import type { BridgeInitOptions } from './types';
+import { emitInitFinished } from './events';
 
 let initialized = false;
 let cachedAbilities: CodecAbilities | null = null;
@@ -43,6 +44,10 @@ export async function initBridge(
   }
 
   initialized = true;
+
+  // Notify Flutter that the bridge is ready (mirrors `context["onInitFinished"]`
+  // in flutter/lib/models/web_model.dart).
+  emitInitFinished();
 }
 
 /** Return cached codec abilities (null before init). */
