@@ -218,6 +218,8 @@ a {
   background: var(--bg-elev);
   border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
+  transition: transform 0.2s ease;
+  z-index: 10;
 }
 
 .session-toolbar .info {

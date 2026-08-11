@@ -12,6 +12,7 @@ interface Props {
   cursorData: CursorData | null;
   cursorPosition: CursorPosition | null;
   viewOnly: boolean;
+  scaleMode?: 'fit' | 'original';
   sendMouse: (event: NonNullable<MessageT['mouseEvent']>) => void;
   sendKey: (event: NonNullable<MessageT['keyEvent']>) => void;
   onStats?: (stats: RenderStats) => void;
@@ -23,6 +24,7 @@ export function RemoteScreen({
   cursorData,
   cursorPosition,
   viewOnly,
+  scaleMode = 'fit',
   sendMouse,
   sendKey,
   onStats,
@@ -164,7 +166,7 @@ export function RemoteScreen({
         onMouseUp={(e) => handleMouse('up', e)}
         onWheel={(e) => handleMouse('wheel', e)}
         onContextMenu={(e) => e.preventDefault()}
-        style={{ cursor: cursorStyle }}
+        style={{ cursor: cursorStyle, ...(scaleMode === 'original' ? { maxWidth: 'none', maxHeight: 'none' } : {}) }}
       />
 
       {cursorPosition && !cursorUrl && (

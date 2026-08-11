@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { type SessionConfig, CodecPreference, ImageQuality } from '../protocol/config';
 import { useRemoteSession } from '../hooks/useRemoteSession';
 import { RemoteScreen } from '../components/RemoteScreen';
 import { checkWebCodecsSupport, type RenderStats } from '../media/renderer';
+
+type ScaleMode = 'fit' | 'original';
 
 interface Props {
   config: SessionConfig;
@@ -27,10 +29,64 @@ export function SessionPage({ config, onExit }: Props) {
   const [viewOnly, setViewOnly] = useState(false);
   const [stats, setStats] = useState<RenderStats | null>(null);
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
+  const [scaleMode, setScaleMode] = useState<ScaleMode>('fit');
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [toolbarVisible, setToolbarVisible] = useState(true);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const configRef = useRef(config);
   configRef.current = config;
 
   const codecSupport = useMemo(() => checkWebCodecsSupport(), []);
+
+  const toggleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      pageRef.current?.requestFullscreen?.().catch(() => {});
+    } else {
+      document.exitFullscreen?.().catch(() => {});
+    }
+  }, []);
+
+  useEffect(() => {
+    const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'F11') {
+        e.preventDefault();
+        toggleFullscreen();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [toggleFullscreen]);
+
+  useEffect(() => {
+    if (!isFullscreen) {
+      setToolbarVisible(true);
+      return;
+    }
+    const stage = pageRef.current;
+    if (!stage) return;
+    let hideTimer: ReturnType<typeof setTimeout> | undefined;
+    const onMove = (e: MouseEvent) => {
+      if (e.clientY < 50) {
+        setToolbarVisible(true);
+      }
+      if (hideTimer) clearTimeout(hideTimer);
+      hideTimer = setTimeout(() => {
+        if (e.clientY >= 50) setToolbarVisible(false);
+      }, 2000);
+    };
+    stage.addEventListener('mousemove', onMove);
+    return () => {
+      stage.removeEventListener('mousemove', onMove);
+      if (hideTimer) clearTimeout(hideTimer);
+    };
+  }, [isFullscreen]);
 
   useEffect(() => {
     session.connect(config);
@@ -71,7 +127,7 @@ export function SessionPage({ config, onExit }: Props) {
 
   if (!codecSupport.available && connected) {
     return (
-      <div className="app-shell session-page">
+    <div className="app-shell session-page" ref={pageRef}>
         <header className="session-toolbar">
           <strong>{config.peerId}</strong>
           <span className="info">WebCodecs 不可用</span>
@@ -93,7 +149,7 @@ export function SessionPage({ config, onExit }: Props) {
 
   return (
     <div className="app-shell session-page">
-      <header className="session-toolbar">
+      <header className="session-toolbar" style={isFullscreen && !toolbarVisible ? { transform: 'translateY(-100%)' } : undefined}>
         <strong>{config.peerId}</strong>
         <span className="info">{STATE_LABEL[session.state] ?? session.state}</span>
         {session.peerInfo && (
@@ -165,12 +221,33 @@ export function SessionPage({ config, onExit }: Props) {
           </select>
         )}
         {connected && (
+          <select
+            className="btn"
+            value={scaleMode}
+            onChange={(e) => setScaleMode(e.target.value as ScaleMode)}
+            title="缩放模式"
+            style={{ padding: '4px 8px' }}
+          >
+            <option value="fit">适应窗口</option>
+            <option value="original">原始尺寸</option>
+          </select>
+        )}
+        {connected && (
           <button
             className="btn"
             onClick={() => session.setClipboardSync(!session.clipboardSync)}
             title="剪贴板同步"
           >
             {session.clipboardSync ? '剪贴板✓' : '剪贴板'}
+          </button>
+        )}
+        {connected && (
+          <button
+            className="btn"
+            onClick={toggleFullscreen}
+            title="全屏 (F11)"
+          >
+            {isFullscreen ? '退出全屏' : '全屏'}
           </button>
         )}
         <button className="btn" onClick={() => setShowLogs((v) => !v)}>
@@ -181,7 +258,7 @@ export function SessionPage({ config, onExit }: Props) {
         </button>
       </header>
 
-      <div className="session-stage">
+      <div className="session-stage" ref={stageRef}>
         {connected && (
           <RemoteScreen
             peerInfo={session.peerInfo}
@@ -189,6 +266,7 @@ export function SessionPage({ config, onExit }: Props) {
             cursorData={session.cursorData}
             cursorPosition={session.cursorPosition}
             viewOnly={viewOnly}
+            scaleMode={scaleMode}
             sendMouse={session.sendMouse}
             sendKey={session.sendKey}
             onStats={setStats}
