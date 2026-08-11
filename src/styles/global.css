@@ -465,3 +465,46 @@ a {
   padding: 2px 6px;
   font-size: 11px;
 }
+
+.terminal-panel {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: min(400px, 60vh);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  z-index: 50;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.terminal-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.terminal-title {
+  font-weight: 600;
+}
+
+.terminal-status {
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.terminal-container {
+  flex: 1;
+  padding: 4px 8px;
+  overflow: hidden;
+  background: #1e1e1e;
+}
+
+.terminal-container .xterm {
+  height: 100%;
+}

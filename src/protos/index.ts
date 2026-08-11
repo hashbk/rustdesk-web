@@ -210,6 +210,18 @@ export type MessageT = {
     done?: { id?: number; fileNum?: number };
     digest?: { id?: number; fileNum?: number; lastModified?: number; fileSize?: number; isUpload?: boolean; isIdentical?: boolean; transferredSize?: number; isResume?: boolean };
   };
+  terminalAction?: {
+    open?: { terminalId?: number; rows?: number; cols?: number };
+    data?: { terminalId?: number; data?: Uint8Array; compressed?: boolean };
+    resize?: { terminalId?: number; rows?: number; cols?: number };
+    close?: { terminalId?: number };
+  };
+  terminalResponse?: {
+    opened?: { terminalId?: number; success?: boolean; message?: string; pid?: number; serviceId?: string; persistentSessions?: number[]; replayTerminalOutput?: boolean };
+    data?: { terminalId?: number; data?: Uint8Array; compressed?: boolean };
+    closed?: { terminalId?: number; exitCode?: number };
+    error?: { terminalId?: number; message?: string };
+  };
 };
 
 export type FileEntryT = {
