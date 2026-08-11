@@ -66,6 +66,7 @@ export default [
         history: 'readonly',
         location: 'readonly',
         React: 'readonly',
+        ResizeObserver: 'readonly',
       },
     },
     plugins: {

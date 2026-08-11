@@ -39,6 +39,7 @@ export interface SessionEvents {
   messageBox: (box: NonNullable<MessageT['messageBox']>) => void;
   switchDisplay: (display: unknown) => void;
   fileResponse: (resp: NonNullable<MessageT['fileResponse']>) => void;
+  terminalResponse: (resp: NonNullable<MessageT['terminalResponse']>) => void;
   need2fa: () => void;
   closeReason: (reason: string) => void;
   error: (error: Error) => void;
@@ -403,6 +404,7 @@ export class RemoteSession {
       }
       else if (msg.messageBox) this.emit('messageBox', msg.messageBox);
       else if (msg.fileResponse) this.emit('fileResponse', msg.fileResponse);
+      else if (msg.terminalResponse) this.emit('terminalResponse', msg.terminalResponse);
       else if (msg.misc) this.handleMisc(msg.misc);
       else if (msg.option) this.log('server option update received');
       else if (msg.refresh) this.handleRefresh();
@@ -437,6 +439,11 @@ export class RemoteSession {
   sendFileResponse(resp: NonNullable<MessageT['fileResponse']>): void {
     if (this.state !== 'connected') return;
     this.relayStream?.send(encodeMessage({ fileResponse: resp }));
+  }
+
+  sendTerminalAction(action: NonNullable<MessageT['terminalAction']>): void {
+    if (this.state !== 'connected') return;
+    this.relayStream?.send(encodeMessage({ terminalAction: action }));
   }
 
   sendSwitchDisplay(display: number): void {

@@ -3,6 +3,7 @@ import { type SessionConfig, CodecPreference, ImageQuality } from '../protocol/c
 import { useRemoteSession } from '../hooks/useRemoteSession';
 import { RemoteScreen } from '../components/RemoteScreen';
 import { FileManager } from '../components/FileManager';
+import { TerminalPanel } from '../components/Terminal';
 import { checkWebCodecsSupport, type RenderStats } from '../media/renderer';
 
 type ScaleMode = 'fit' | 'original';
@@ -34,6 +35,7 @@ export function SessionPage({ config, onExit }: Props) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [toolbarVisible, setToolbarVisible] = useState(true);
   const [showFileManager, setShowFileManager] = useState(false);
+  const [showTerminal, setShowTerminal] = useState(false);
   const pageRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const configRef = useRef(config);
@@ -256,6 +258,15 @@ export function SessionPage({ config, onExit }: Props) {
             文件
           </button>
         )}
+        {connected && session.peerInfo?.features?.terminal && (
+          <button
+            className="btn"
+            onClick={() => setShowTerminal((v) => !v)}
+            title="终端"
+          >
+            终端
+          </button>
+        )}
         {connected && (
           <button
             className="btn"
@@ -388,6 +399,13 @@ export function SessionPage({ config, onExit }: Props) {
           onUpload={session.uploadFile}
           onCancel={session.cancelTransfer}
           onClose={() => setShowFileManager(false)}
+        />
+      )}
+
+      {showTerminal && connected && (
+        <TerminalPanel
+          config={config}
+          onClose={() => setShowTerminal(false)}
         />
       )}
     </div>
