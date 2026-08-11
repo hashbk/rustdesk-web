@@ -35,6 +35,7 @@ export interface SessionEvents {
   audioFormat: (fmt: NonNullable<MessageT['audioFormat']>) => void;
   audioFrame: (frame: NonNullable<MessageT['audioFrame']>) => void;
   clipboard: (clip: NonNullable<MessageT['clipboard']>) => void;
+  latency: (ms: number) => void;
   need2fa: () => void;
   closeReason: (reason: string) => void;
   error: (error: Error) => void;
@@ -389,6 +390,14 @@ export class RemoteSession {
       else if (msg.audioFormat) this.emit('audioFormat', msg.audioFormat);
       else if (msg.audioFrame) this.emit('audioFrame', msg.audioFrame);
       else if (msg.clipboard) this.emit('clipboard', msg.clipboard);
+      else if (msg.testDelay) {
+        if (!msg.testDelay.fromClient) {
+          if (msg.testDelay.lastDelay !== undefined && msg.testDelay.lastDelay > 0) {
+            this.emit('latency', msg.testDelay.lastDelay);
+          }
+          this.relayStream?.send(encodeMessage({ testDelay: msg.testDelay }));
+        }
+      }
       else if (msg.closeReason) {
         this.emit('closeReason', msg.closeReason);
         break;
