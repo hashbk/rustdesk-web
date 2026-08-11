@@ -40,9 +40,31 @@ export enum PrivacyModeState {
   PrvOffUnknown = 11,
 }
 
+export enum BoolOption {
+  NotSet = 0,
+  No = 1,
+  Yes = 2,
+}
+
 export interface PrivacyModeNotification {
   state: PrivacyModeState;
   details?: string;
+}
+
+export interface SessionOptionMessage {
+  imageQuality?: ImageQuality;
+  customImageQuality?: number;
+  lockAfterSessionEnd?: BoolOption;
+  showRemoteCursor?: BoolOption;
+  privacyMode?: BoolOption;
+  disableAudio?: BoolOption;
+  disableClipboard?: BoolOption;
+  disableKeyboard?: BoolOption;
+  customFps?: number;
+  followRemoteCursor?: BoolOption;
+  followRemoteWindow?: BoolOption;
+  showMyCursor?: BoolOption;
+  supportedDecoding?: Record<string, unknown>;
 }
 
 export interface SessionEvents {
@@ -115,6 +137,7 @@ export class RemoteSession {
   private myId: string;
   private closed = false;
   private codecAbilities: { vp8: boolean; vp9: boolean; av1: boolean; h264: boolean; h265: boolean } | null = null;
+  private initialOptions: SessionOptionMessage = {};
 
   constructor(config: SessionConfig) {
     this.config = config;
@@ -355,6 +378,7 @@ export class RemoteSession {
             abilityAv1: 0,
             prefer,
           },
+          ...this.initialOptions,
         },
       },
     };
@@ -546,6 +570,19 @@ export class RemoteSession {
     this.log(`custom image quality set: ${quality}`);
   }
 
+  setInitialOptions(options: SessionOptionMessage): void {
+    this.initialOptions = { ...options };
+  }
+
+  sendOption(options: SessionOptionMessage): void {
+    if (this.state !== 'connected') return;
+    const msg: MessageT = {
+      misc: { option: options },
+    };
+    this.relayStream?.send(encodeMessage(msg));
+    this.log(`option update sent: ${Object.keys(options).join(', ') || '(empty)'}`);
+  }
+
   private handleMisc(misc: NonNullable<MessageT['misc']>): void {
     if (misc.audioFormat) this.emit('audioFormat', misc.audioFormat as NonNullable<MessageT['audioFormat']>);
     if (misc.closeReason) {
@@ -594,6 +631,10 @@ export const DEFAULT_RS_PUB_KEY = 'OeVuKk5nlHiXp+APNn0Y3pC1Iwpwn44JGqrQCsWqmBw='
 function generateWebId(): string {
   const n = Math.floor(1_000_000_000 + Math.random() * 9_000_000_000);
   return n.toString();
+}
+
+export function boolToOption(b: boolean): BoolOption {
+  return b ? BoolOption.Yes : BoolOption.No;
 }
 
 export type { ServerConfig, SessionConfig };

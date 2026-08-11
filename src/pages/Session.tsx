@@ -36,6 +36,7 @@ export function SessionPage({ config, onExit }: Props) {
   const [toolbarVisible, setToolbarVisible] = useState(true);
   const [showFileManager, setShowFileManager] = useState(false);
   const [showTerminal, setShowTerminal] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [showElevationDialog, setShowElevationDialog] = useState(false);
   const [elevationMode, setElevationMode] = useState<'direct' | 'logon'>('direct');
   const [elevationUsername, setElevationUsername] = useState('');
@@ -301,6 +302,15 @@ export function SessionPage({ config, onExit }: Props) {
         {connected && (
           <button
             className="btn"
+            onClick={() => setShowSettings((v) => !v)}
+            title="会话选项"
+          >
+            设置
+          </button>
+        )}
+        {connected && (
+          <button
+            className="btn"
             onClick={toggleFullscreen}
             title="全屏 (F11)"
           >
@@ -520,6 +530,49 @@ export function SessionPage({ config, onExit }: Props) {
             >
               确定
             </button>
+          </div>
+        </div>
+      )}
+
+      {showSettings && connected && (
+        <div className="modal-overlay" onClick={() => setShowSettings(false)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 16px' }}>会话选项</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+              {([
+                { label: '显示远程光标', checked: session.showRemoteCursor, onChange: session.setShowRemoteCursor },
+                { label: '断开后锁定远程', checked: session.lockAfterSessionEnd, onChange: session.setLockAfterSessionEnd },
+                { label: '跟随远程光标', checked: session.followRemoteCursor, onChange: session.setFollowRemoteCursor },
+                { label: '跟随远程窗口', checked: session.followRemoteWindow, onChange: session.setFollowRemoteWindow },
+                { label: '显示我的光标', checked: session.showMyCursor, onChange: session.setShowMyCursor },
+                { label: '禁用音频', checked: session.disableAudio, onChange: session.setDisableAudio },
+                { label: '禁用剪贴板', checked: session.disableClipboard, onChange: session.setDisableClipboard },
+                { label: '禁用键盘', checked: session.disableKeyboard, onChange: session.setDisableKeyboard },
+              ]).map((opt) => (
+                <label key={opt.label} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={opt.checked}
+                    onChange={(e) => opt.onChange(e.target.checked)}
+                  />
+                  {opt.label}
+                </label>
+              ))}
+            </div>
+            <div className="field">
+              <label>自定义 FPS (0 = 默认)</label>
+              <input
+                className="input"
+                type="number"
+                min={0}
+                max={120}
+                value={session.customFps}
+                onChange={(e) => session.setCustomFps(Number(e.target.value))}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+              <button className="btn" onClick={() => setShowSettings(false)}>关闭</button>
+            </div>
           </div>
         </div>
       )}
