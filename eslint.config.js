@@ -39,6 +39,7 @@ export default [
         MouseEvent: 'readonly',
         KeyboardEvent: 'readonly',
         WheelEvent: 'readonly',
+        CompositionEvent: 'readonly',
         DOMRect: 'readonly',
         VideoDecoder: 'readonly',
         VideoDecoderConfig: 'readonly',

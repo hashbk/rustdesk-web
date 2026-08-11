@@ -50,12 +50,18 @@ export function RemoteScreen({
       if (viewOnly) return;
       if (keyboardRef.current?.handle(e)) e.preventDefault();
     };
+    const ce = (e: CompositionEvent) => {
+      if (viewOnly) return;
+      if (keyboardRef.current?.handleCompositionEnd(e)) e.preventDefault();
+    };
     window.addEventListener('keydown', kd);
     window.addEventListener('keyup', kd);
+    window.addEventListener('compositionend', ce);
 
     return () => {
       window.removeEventListener('keydown', kd);
       window.removeEventListener('keyup', kd);
+      window.removeEventListener('compositionend', ce);
       rendererRef.current?.destroy();
       rendererRef.current = null;
       if (cursorUrlRef.current) URL.revokeObjectURL(cursorUrlRef.current);
