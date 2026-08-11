@@ -25,7 +25,7 @@
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "fzstd": "^0.1.1",
-    "protobufjs": "^7.4.0",
+    "protobufjs": "^8.7.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tweetnacl": "^1.0.3"
