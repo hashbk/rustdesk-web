@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { decompress as zstdDecompress } from 'fzstd';
 import { VideoRenderer, type RenderStats } from '../media/renderer';
 import { MouseAdapter } from '../input/mouse';
 import { KeyboardAdapter } from '../input/keyboard';
@@ -106,12 +107,18 @@ export function RemoteScreen({
   useEffect(() => {
     if (!cursorData || cursorData.width <= 0 || cursorData.height <= 0) return;
     const { colors, width, height, hotx, hoty } = cursorData;
+    let raw: Uint8Array;
+    try {
+      raw = zstdDecompress(colors);
+    } catch {
+      return;
+    }
     const rgba = new Uint8ClampedArray(width * height * 4);
-    for (let i = 0, j = 0; i < colors.length && j < rgba.length; i += 4, j += 4) {
-      rgba[j] = colors[i + 2];
-      rgba[j + 1] = colors[i + 1];
-      rgba[j + 2] = colors[i];
-      rgba[j + 3] = colors[i + 3];
+    for (let i = 0, j = 0; i < raw.length && j < rgba.length; i += 4, j += 4) {
+      rgba[j] = raw[i + 2];
+      rgba[j + 1] = raw[i + 1];
+      rgba[j + 2] = raw[i];
+      rgba[j + 3] = raw[i + 3];
     }
     const off = document.createElement('canvas');
     off.width = width;
