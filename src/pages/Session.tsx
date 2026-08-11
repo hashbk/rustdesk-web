@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { SessionConfig } from '../protocol/config';
+import { type SessionConfig, CodecPreference } from '../protocol/config';
 import { useRemoteSession } from '../hooks/useRemoteSession';
 import { RemoteScreen } from '../components/RemoteScreen';
 import { checkWebCodecsSupport, type RenderStats } from '../media/renderer';
@@ -112,6 +112,21 @@ export function SessionPage({ config, onExit }: Props) {
           >
             {session.muted ? '🔇' : '🔊'}
           </button>
+        )}
+        {connected && session.codecAbilities && (
+          <select
+            className="btn"
+            value={session.codecPreference}
+            onChange={(e) => session.setCodecPreference(Number(e.target.value) as CodecPreference)}
+            title="编解码器偏好"
+            style={{ padding: '4px 8px' }}
+          >
+            <option value={CodecPreference.Auto}>自动</option>
+            <option value={CodecPreference.VP9} disabled={!session.codecAbilities.vp9}>VP9</option>
+            <option value={CodecPreference.H264} disabled={!session.codecAbilities.h264}>H264</option>
+            <option value={CodecPreference.H265} disabled={!session.codecAbilities.h265}>H265</option>
+            <option value={CodecPreference.VP8} disabled={!session.codecAbilities.vp8}>VP8</option>
+          </select>
         )}
         <button className="btn" onClick={() => setShowLogs((v) => !v)}>
           {showLogs ? '隐藏日志' : '日志'}
