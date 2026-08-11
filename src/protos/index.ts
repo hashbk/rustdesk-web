@@ -1,6 +1,6 @@
 import protobuf from 'protobufjs';
-import rendezvousProto from './rendezvous.proto?raw';
-import messageProto from './message.proto?raw';
+import rendezvousProto from '@proto/rendezvous.proto?raw';
+import messageProto from '@proto/message.proto?raw';
 
 const root = new protobuf.Root();
 protobuf.parse(rendezvousProto, root);

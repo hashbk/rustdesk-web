@@ -1,0 +1,3 @@
+[submodule "vendor/hbb_common"]
+	path = vendor/hbb_common
+	url = https://github.com/rustdesk/hbb_common
