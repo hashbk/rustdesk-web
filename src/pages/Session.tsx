@@ -104,6 +104,15 @@ export function SessionPage({ config, onExit }: Props) {
             {viewOnly ? '只读' : '可控制'}
           </button>
         )}
+        {connected && session.audioEnabled && (
+          <button
+            className="btn"
+            onClick={() => session.setMuted(!session.muted)}
+            title="静音/取消静音"
+          >
+            {session.muted ? '🔇' : '🔊'}
+          </button>
+        )}
         <button className="btn" onClick={() => setShowLogs((v) => !v)}>
           {showLogs ? '隐藏日志' : '日志'}
         </button>
