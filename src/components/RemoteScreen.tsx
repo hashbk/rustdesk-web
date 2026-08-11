@@ -58,10 +58,17 @@ export function RemoteScreen({
     window.addEventListener('keyup', kd);
     window.addEventListener('compositionend', ce);
 
+    const onBlur = () => {
+      mouseRef.current?.releaseAll();
+      keyboardRef.current?.releaseAll();
+    };
+    window.addEventListener('blur', onBlur);
+
     return () => {
       window.removeEventListener('keydown', kd);
       window.removeEventListener('keyup', kd);
       window.removeEventListener('compositionend', ce);
+      window.removeEventListener('blur', onBlur);
       rendererRef.current?.destroy();
       rendererRef.current = null;
       if (cursorUrlRef.current) URL.revokeObjectURL(cursorUrlRef.current);
@@ -166,14 +173,14 @@ export function RemoteScreen({
         }}
       />
       {cursorPosition && !cursorUrl && (
-        <CursorDot position={cursorPosition} displayWidth={peerInfo?.displays?.[peerInfo.currentDisplay ?? 0]?.width ?? 1} displayHeight={peerInfo?.displays?.[peerInfo.currentDisplay ?? 0]?.height ?? 1} />
+        <CursorDot position={cursorPosition} displayWidth={peerInfo?.displays?.[peerInfo.currentDisplay ?? 0]?.width ?? 1} displayHeight={peerInfo?.displays?.[peerInfo.currentDisplay ?? 0]?.height ?? 1} canvasRef={canvasRef} />
       )}
     </div>
   );
 }
 
-function CursorDot({ position, displayWidth, displayHeight }: { position: CursorPosition; displayWidth: number; displayHeight: number }) {
-  const canvas = document.querySelector('.remote-canvas') as HTMLCanvasElement | null;
+function CursorDot({ position, displayWidth, displayHeight, canvasRef }: { position: CursorPosition; displayWidth: number; displayHeight: number; canvasRef: React.RefObject<HTMLCanvasElement | null> }) {
+  const canvas = canvasRef.current;
   const rect = canvas?.getBoundingClientRect();
   if (!rect) return null;
   const x = (position.x / displayWidth) * rect.width;
