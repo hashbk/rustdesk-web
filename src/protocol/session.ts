@@ -427,6 +427,15 @@ export class RemoteSession {
     this.relayStream?.send(encodeMessage({ clipboard: { content } }));
   }
 
+  sendSwitchDisplay(display: number): void {
+    if (this.state !== 'connected') return;
+    const msg: MessageT = {
+      misc: { switchDisplay: { display, width: 0, height: 0 } },
+    };
+    this.relayStream?.send(encodeMessage(msg));
+    this.log(`switched to display ${display}`);
+  }
+
   sendCodecPreference(prefer: CodecPreference): void {
     if (this.state !== 'connected' || !this.codecAbilities) return;
     const a = this.codecAbilities;

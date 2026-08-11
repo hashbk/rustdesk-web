@@ -207,6 +207,19 @@ export function SessionPage({ config, onExit }: Props) {
             <option value={CodecPreference.VP8} disabled={!session.codecAbilities.vp8}>VP8</option>
           </select>
         )}
+        {connected && session.peerInfo && (session.peerInfo.displays?.length ?? 0) > 1 && (
+          <select
+            className="btn"
+            value={session.peerInfo.currentDisplay ?? 0}
+            onChange={(e) => session.sendSwitchDisplay(Number(e.target.value))}
+            title="显示器"
+            style={{ padding: '4px 8px' }}
+          >
+            {session.peerInfo.displays?.map((d, i) => (
+              <option key={i} value={i}>显示器{i + 1} ({d.width}×{d.height})</option>
+            ))}
+          </select>
+        )}
         {connected && (
           <select
             className="btn"

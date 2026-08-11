@@ -55,6 +55,7 @@ export interface RemoteSessionHook {
   setClipboardSync: (enabled: boolean) => void;
   sendClipboard: (text: string) => void;
   dismissMessageBox: () => void;
+  sendSwitchDisplay: (display: number) => void;
 }
 
 export function useRemoteSession(): RemoteSessionHook {
@@ -216,6 +217,11 @@ export function useRemoteSession(): RemoteSessionHook {
 
   const dismissMessageBox = useCallback(() => setMessageBox(null), []);
 
+  const sendSwitchDisplay = useCallback((display: number) => {
+    sessionRef.current?.sendSwitchDisplay(display);
+  }, []);
+
+
   useEffect(() => {
     return () => {
       sessionRef.current?.close();
@@ -252,5 +258,6 @@ export function useRemoteSession(): RemoteSessionHook {
     setClipboardSync,
     sendClipboard,
     dismissMessageBox,
+    sendSwitchDisplay,
   };
 }
