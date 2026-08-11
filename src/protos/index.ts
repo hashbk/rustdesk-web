@@ -196,6 +196,28 @@ export type MessageT = {
   refresh?: boolean;
   auth2fa?: { code: string; hwid?: Uint8Array };
   messageBox?: { msgType?: string; title?: string; text?: string; link?: string };
+  fileAction?: {
+    readDir?: { id?: number; path?: string; includeHidden?: boolean };
+    send?: { id?: number; path?: string; includeHidden?: boolean; fileNum?: number };
+    receive?: { id?: number; path?: string; files?: unknown[]; fileNum?: number; totalSize?: number };
+    cancel?: { id?: number };
+    sendConfirm?: { id?: number; fileNum?: number; skip?: boolean; offsetBlk?: number };
+  };
+  fileResponse?: {
+    dir?: { id?: number; path?: string; entries?: FileEntryT[] };
+    block?: { id?: number; fileNum?: number; data?: Uint8Array; compressed?: boolean; blkId?: number };
+    error?: { id?: number; error?: string; fileNum?: number };
+    done?: { id?: number; fileNum?: number };
+    digest?: { id?: number; fileNum?: number; lastModified?: number; fileSize?: number; isUpload?: boolean; isIdentical?: boolean; transferredSize?: number; isResume?: boolean };
+  };
+};
+
+export type FileEntryT = {
+  entryType?: number;
+  name?: string;
+  isHidden?: boolean;
+  size?: number;
+  modifiedTime?: number;
 };
 
 export type Long = { low: number; high: number; unsigned: boolean };

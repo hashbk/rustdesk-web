@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { type SessionConfig, CodecPreference, ImageQuality } from '../protocol/config';
 import { useRemoteSession } from '../hooks/useRemoteSession';
 import { RemoteScreen } from '../components/RemoteScreen';
+import { FileManager } from '../components/FileManager';
 import { checkWebCodecsSupport, type RenderStats } from '../media/renderer';
 
 type ScaleMode = 'fit' | 'original';
@@ -32,6 +33,7 @@ export function SessionPage({ config, onExit }: Props) {
   const [scaleMode, setScaleMode] = useState<ScaleMode>('fit');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [toolbarVisible, setToolbarVisible] = useState(true);
+  const [showFileManager, setShowFileManager] = useState(false);
   const pageRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const configRef = useRef(config);
@@ -248,6 +250,15 @@ export function SessionPage({ config, onExit }: Props) {
         {connected && (
           <button
             className="btn"
+            onClick={() => setShowFileManager((v) => !v)}
+            title="文件传输"
+          >
+            文件
+          </button>
+        )}
+        {connected && (
+          <button
+            className="btn"
             onClick={() => session.setClipboardSync(!session.clipboardSync)}
             title="剪贴板同步"
           >
@@ -367,6 +378,17 @@ export function SessionPage({ config, onExit }: Props) {
             </button>
           </div>
         </div>
+      )}
+
+      {showFileManager && connected && (
+        <FileManager
+          remoteDir={session.remoteDir}
+          transfers={session.transfers}
+          onReadDir={session.readRemoteDir}
+          onUpload={session.uploadFile}
+          onCancel={session.cancelTransfer}
+          onClose={() => setShowFileManager(false)}
+        />
       )}
     </div>
   );

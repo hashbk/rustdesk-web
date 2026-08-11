@@ -4,6 +4,7 @@ import { type SessionConfig, CodecPreference, ImageQuality } from '../protocol/c
 import type { PeerInfoT, VideoFrameT, MessageT } from '../protos';
 import { AudioPlayer } from '../media/AudioPlayer';
 import type { CodecAbilities } from '../media/renderer';
+import { FileTransferManager, type TransferProgress, type RemoteDir } from '../protocol/file_transfer';
 
 export interface CursorData {
   id: number;
@@ -56,6 +57,11 @@ export interface RemoteSessionHook {
   sendClipboard: (text: string) => void;
   dismissMessageBox: () => void;
   sendSwitchDisplay: (display: number) => void;
+  readRemoteDir: (path: string) => void;
+  uploadFile: (file: File, remotePath: string) => Promise<void>;
+  cancelTransfer: (id: number) => void;
+  remoteDir: RemoteDir | null;
+  transfers: TransferProgress[];
 }
 
 export function useRemoteSession(): RemoteSessionHook {
@@ -79,6 +85,9 @@ export function useRemoteSession(): RemoteSessionHook {
   const seqRef = useRef(0);
   const audioPlayerRef = useRef<AudioPlayer | null>(null);
   const mutedRef = useRef(false);
+  const ftmRef = useRef<FileTransferManager | null>(null);
+  const [remoteDir, setRemoteDir] = useState<RemoteDir | null>(null);
+  const [transfers, setTransfers] = useState<TransferProgress[]>([]);
   const clipboardSyncRef = useRef(false);
 
   const pushLog = useCallback((msg: string) => {
@@ -131,6 +140,9 @@ export function useRemoteSession(): RemoteSessionHook {
             link: box.link,
           });
         },
+        fileResponse: (resp) => {
+          ftmRef.current?.handleFileResponse(resp);
+        },
         audioFormat: async (fmt) => {
           const sr = fmt.sampleRate ?? 48000;
           const ch = fmt.channels ?? 2;
@@ -162,6 +174,22 @@ export function useRemoteSession(): RemoteSessionHook {
       for (const [k, fn] of Object.entries(handlers)) {
         session.on(k as keyof SessionEvents, fn as never);
       }
+      ftmRef.current = new FileTransferManager(
+        (a) => session.sendFileAction(a),
+        (r) => session.sendFileResponse(r),
+      );
+      ftmRef.current.setCallbacks(
+        (dir) => setRemoteDir(dir),
+        (p) => setTransfers((prev) => {
+          const idx = prev.findIndex((t) => t.id === p.id);
+          if (idx >= 0) {
+            const next = [...prev];
+            next[idx] = p;
+            return next;
+          }
+          return [...prev, p];
+        }),
+      );
       void session.connect();
     },
     [pushLog],
@@ -221,6 +249,18 @@ export function useRemoteSession(): RemoteSessionHook {
     sessionRef.current?.sendSwitchDisplay(display);
   }, []);
 
+  const readRemoteDir = useCallback((path: string) => {
+    ftmRef.current?.readRemoteDir(path);
+  }, []);
+
+  const uploadFile = useCallback(async (file: File, remotePath: string) => {
+    await ftmRef.current?.uploadFile(file, remotePath);
+  }, []);
+
+  const cancelTransfer = useCallback((id: number) => {
+    ftmRef.current?.cancelTransfer(id);
+  }, []);
+
 
   useEffect(() => {
     return () => {
@@ -259,5 +299,10 @@ export function useRemoteSession(): RemoteSessionHook {
     sendClipboard,
     dismissMessageBox,
     sendSwitchDisplay,
+    readRemoteDir,
+    uploadFile,
+    cancelTransfer,
+    remoteDir,
+    transfers,
   };
 }
