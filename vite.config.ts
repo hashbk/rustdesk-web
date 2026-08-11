@@ -2,12 +2,17 @@ import { fileURLToPath, URL } from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+const BUILD_DATE = new Date().toISOString().slice(0, 10);
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
       '@proto': fileURLToPath(new URL('./vendor/hbb_common/protos', import.meta.url)),
     },
+  },
+  define: {
+    __BRIDGE_BUILD_DATE__: JSON.stringify(BUILD_DATE),
   },
   server: {
     port: 5173,
