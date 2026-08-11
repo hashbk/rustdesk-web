@@ -36,6 +36,8 @@ export interface SessionEvents {
   audioFrame: (frame: NonNullable<MessageT['audioFrame']>) => void;
   clipboard: (clip: NonNullable<MessageT['clipboard']>) => void;
   latency: (ms: number) => void;
+  messageBox: (box: NonNullable<MessageT['messageBox']>) => void;
+  switchDisplay: (display: unknown) => void;
   need2fa: () => void;
   closeReason: (reason: string) => void;
   error: (error: Error) => void;
@@ -398,6 +400,10 @@ export class RemoteSession {
           this.relayStream?.send(encodeMessage({ testDelay: msg.testDelay }));
         }
       }
+      else if (msg.messageBox) this.emit('messageBox', msg.messageBox);
+      else if (msg.misc) this.handleMisc(msg.misc);
+      else if (msg.option) this.log('server option update received');
+      else if (msg.refresh) this.handleRefresh();
       else if (msg.closeReason) {
         this.emit('closeReason', msg.closeReason);
         break;
@@ -462,6 +468,20 @@ export class RemoteSession {
     };
     this.relayStream?.send(encodeMessage(msg));
     this.log(`custom image quality set: ${quality}`);
+  }
+
+  private handleMisc(misc: NonNullable<MessageT['misc']>): void {
+    if (misc.audioFormat) this.emit('audioFormat', misc.audioFormat as NonNullable<MessageT['audioFormat']>);
+    if (misc.closeReason) {
+      this.emit('closeReason', misc.closeReason as string);
+    }
+    if (misc.switchDisplay) this.emit('switchDisplay', misc.switchDisplay);
+    if (misc.refreshVideo) this.log('peer requested video refresh');
+    if (misc.backNotification) this.log('back notification received');
+  }
+
+  private handleRefresh(): void {
+    this.log('peer requested state refresh');
   }
 
   close(): void {
