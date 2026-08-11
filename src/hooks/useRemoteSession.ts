@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { RemoteSession, type SessionState, type SessionEvents, PrivacyModeState, type PrivacyModeNotification } from '../protocol/session';
+import { RemoteSession, type SessionState, type SessionEvents, PrivacyModeState, type PrivacyModeNotification, type SessionOptionMessage, boolToOption } from '../protocol/session';
 import { type SessionConfig, CodecPreference, ImageQuality } from '../protocol/config';
 import type { PeerInfoT, VideoFrameT, MessageT } from '../protos';
 import { AudioPlayer } from '../media/AudioPlayer';
@@ -70,6 +70,24 @@ export interface RemoteSessionHook {
   privacyModeMessage: string | null;
   togglePrivacyMode: () => void;
   dismissPrivacyModeMessage: () => void;
+  showRemoteCursor: boolean;
+  lockAfterSessionEnd: boolean;
+  followRemoteCursor: boolean;
+  followRemoteWindow: boolean;
+  showMyCursor: boolean;
+  disableAudio: boolean;
+  disableClipboard: boolean;
+  disableKeyboard: boolean;
+  customFps: number;
+  setShowRemoteCursor: (enabled: boolean) => void;
+  setLockAfterSessionEnd: (enabled: boolean) => void;
+  setFollowRemoteCursor: (enabled: boolean) => void;
+  setFollowRemoteWindow: (enabled: boolean) => void;
+  setShowMyCursor: (enabled: boolean) => void;
+  setDisableAudio: (enabled: boolean) => void;
+  setDisableClipboard: (enabled: boolean) => void;
+  setDisableKeyboard: (enabled: boolean) => void;
+  setCustomFps: (fps: number) => void;
 }
 
 export function useRemoteSession(): RemoteSessionHook {
@@ -100,6 +118,16 @@ export function useRemoteSession(): RemoteSessionHook {
   const [privacyMode, setPrivacyMode] = useState(false);
   const [privacyModeMessage, setPrivacyModeMessage] = useState<string | null>(null);
   const clipboardSyncRef = useRef(false);
+  const [showRemoteCursor, setShowRemoteCursorState] = useState(false);
+  const [lockAfterSessionEnd, setLockAfterSessionEndState] = useState(false);
+  const [followRemoteCursor, setFollowRemoteCursorState] = useState(false);
+  const [followRemoteWindow, setFollowRemoteWindowState] = useState(false);
+  const [showMyCursor, setShowMyCursorState] = useState(false);
+  const [disableAudio, setDisableAudioState] = useState(false);
+  const [disableClipboard, setDisableClipboardState] = useState(false);
+  const [disableKeyboard, setDisableKeyboardState] = useState(false);
+  const [customFps, setCustomFpsState] = useState(0);
+  const sessionOptionsRef = useRef<SessionOptionMessage>({});
 
   const pushLog = useCallback((msg: string) => {
     setLogs((prev) => (prev.length > 200 ? [...prev.slice(-199), msg] : [...prev, msg]));
@@ -121,6 +149,7 @@ export function useRemoteSession(): RemoteSessionHook {
       setPrivacyModeMessage(null);
 
       const session = new RemoteSession(config);
+      session.setInitialOptions(sessionOptionsRef.current);
       sessionRef.current = session;
       const handlers: Partial<SessionEvents> = {
         stateChange: setState,
@@ -310,6 +339,62 @@ export function useRemoteSession(): RemoteSessionHook {
 
   const dismissPrivacyModeMessage = useCallback(() => setPrivacyModeMessage(null), []);
 
+  const toggleBoolOption = useCallback(
+    (key: keyof SessionOptionMessage, enabled: boolean): void => {
+      const value = boolToOption(enabled);
+      sessionOptionsRef.current = { ...sessionOptionsRef.current, [key]: value };
+      sessionRef.current?.sendOption({ [key]: value } as SessionOptionMessage);
+    },
+    [],
+  );
+
+  const setShowRemoteCursor = useCallback((enabled: boolean) => {
+    setShowRemoteCursorState(enabled);
+    toggleBoolOption('showRemoteCursor', enabled);
+  }, [toggleBoolOption]);
+
+  const setLockAfterSessionEnd = useCallback((enabled: boolean) => {
+    setLockAfterSessionEndState(enabled);
+    toggleBoolOption('lockAfterSessionEnd', enabled);
+  }, [toggleBoolOption]);
+
+  const setFollowRemoteCursor = useCallback((enabled: boolean) => {
+    setFollowRemoteCursorState(enabled);
+    toggleBoolOption('followRemoteCursor', enabled);
+  }, [toggleBoolOption]);
+
+  const setFollowRemoteWindow = useCallback((enabled: boolean) => {
+    setFollowRemoteWindowState(enabled);
+    toggleBoolOption('followRemoteWindow', enabled);
+  }, [toggleBoolOption]);
+
+  const setShowMyCursor = useCallback((enabled: boolean) => {
+    setShowMyCursorState(enabled);
+    toggleBoolOption('showMyCursor', enabled);
+  }, [toggleBoolOption]);
+
+  const setDisableAudio = useCallback((enabled: boolean) => {
+    setDisableAudioState(enabled);
+    toggleBoolOption('disableAudio', enabled);
+  }, [toggleBoolOption]);
+
+  const setDisableClipboard = useCallback((enabled: boolean) => {
+    setDisableClipboardState(enabled);
+    toggleBoolOption('disableClipboard', enabled);
+  }, [toggleBoolOption]);
+
+  const setDisableKeyboard = useCallback((enabled: boolean) => {
+    setDisableKeyboardState(enabled);
+    toggleBoolOption('disableKeyboard', enabled);
+  }, [toggleBoolOption]);
+
+  const setCustomFps = useCallback((fps: number) => {
+    const value = Math.max(0, Math.floor(fps));
+    setCustomFpsState(value);
+    sessionOptionsRef.current = { ...sessionOptionsRef.current, customFps: value };
+    sessionRef.current?.sendOption({ customFps: value });
+  }, []);
+
 
   useEffect(() => {
     return () => {
@@ -361,6 +446,24 @@ export function useRemoteSession(): RemoteSessionHook {
     privacyModeMessage,
     togglePrivacyMode,
     dismissPrivacyModeMessage,
+    showRemoteCursor,
+    lockAfterSessionEnd,
+    followRemoteCursor,
+    followRemoteWindow,
+    showMyCursor,
+    disableAudio,
+    disableClipboard,
+    disableKeyboard,
+    customFps,
+    setShowRemoteCursor,
+    setLockAfterSessionEnd,
+    setFollowRemoteCursor,
+    setFollowRemoteWindow,
+    setShowMyCursor,
+    setDisableAudio,
+    setDisableClipboard,
+    setDisableKeyboard,
+    setCustomFps,
   };
 }
 
