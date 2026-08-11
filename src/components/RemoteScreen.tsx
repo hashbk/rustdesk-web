@@ -27,7 +27,7 @@ export function RemoteScreen({
   onStats,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const cursorCanvasRef = useRef<HTMLCanvasElement>(null);
+
   const rendererRef = useRef<VideoRenderer | null>(null);
   const mouseRef = useRef<MouseAdapter | null>(null);
   const keyboardRef = useRef<KeyboardAdapter | null>(null);
@@ -159,19 +159,7 @@ export function RemoteScreen({
         onContextMenu={(e) => e.preventDefault()}
         style={{ cursor: cursorStyle }}
       />
-      <canvas
-        ref={cursorCanvasRef}
-        className="cursor-overlay"
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          pointerEvents: 'none',
-          display: cursorPosition && !cursorUrl ? 'block' : 'none',
-        }}
-      />
+
       {cursorPosition && !cursorUrl && (
         <CursorDot position={cursorPosition} displayWidth={peerInfo?.displays?.[peerInfo.currentDisplay ?? 0]?.width ?? 1} displayHeight={peerInfo?.displays?.[peerInfo.currentDisplay ?? 0]?.height ?? 1} canvasRef={canvasRef} />
       )}

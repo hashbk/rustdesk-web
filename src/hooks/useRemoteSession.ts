@@ -34,6 +34,7 @@ export interface RemoteSessionHook {
   codecPreference: CodecPreference;
   codecAbilities: CodecAbilities | null;
   imageQuality: ImageQuality;
+  clipboardSync: boolean;
   connect: (config: SessionConfig) => void;
   send2fa: (code: string) => void;
   close: () => void;
@@ -43,6 +44,8 @@ export interface RemoteSessionHook {
   setCodecPreference: (prefer: CodecPreference) => void;
   setImageQuality: (quality: ImageQuality) => void;
   setCustomImageQuality: (quality: number) => void;
+  setClipboardSync: (enabled: boolean) => void;
+  sendClipboard: (text: string) => void;
 }
 
 export function useRemoteSession(): RemoteSessionHook {
@@ -61,9 +64,11 @@ export function useRemoteSession(): RemoteSessionHook {
   const [codecPreference, setCodecPreferenceState] = useState<CodecPreference>(CodecPreference.Auto);
   const [codecAbilities, setCodecAbilities] = useState<CodecAbilities | null>(null);
   const [imageQuality, setImageQualityState] = useState<ImageQuality>(ImageQuality.Balanced);
+  const [clipboardSync, setClipboardSyncState] = useState(false);
   const seqRef = useRef(0);
   const audioPlayerRef = useRef<AudioPlayer | null>(null);
   const mutedRef = useRef(false);
+  const clipboardSyncRef = useRef(false);
 
   const pushLog = useCallback((msg: string) => {
     setLogs((prev) => (prev.length > 200 ? [...prev.slice(-199), msg] : [...prev, msg]));
@@ -119,6 +124,14 @@ export function useRemoteSession(): RemoteSessionHook {
         audioFrame: (frame) => {
           audioPlayerRef.current?.handleFrame(frame.data ?? new Uint8Array());
         },
+        clipboard: (clip) => {
+          if (!clipboardSyncRef.current) return;
+          if (clip.compress) return;
+          const content = clip.content ?? new Uint8Array();
+          if (content.length === 0) return;
+          const text = new TextDecoder().decode(content);
+          navigator.clipboard?.writeText(text).catch(() => {});
+        },
         error: (e) => {
           setError(e.message);
           pushLog(`error: ${e.message}`);
@@ -171,6 +184,17 @@ export function useRemoteSession(): RemoteSessionHook {
     sessionRef.current?.sendCustomImageQuality(quality);
   }, []);
 
+  const setClipboardSync = useCallback((enabled: boolean) => {
+    setClipboardSyncState(enabled);
+    clipboardSyncRef.current = enabled;
+  }, []);
+
+  const sendClipboard = useCallback((text: string) => {
+    if (!clipboardSyncRef.current) return;
+    const content = new TextEncoder().encode(text);
+    sessionRef.current?.sendClipboard(content);
+  }, []);
+
   useEffect(() => {
     return () => {
       sessionRef.current?.close();
@@ -193,6 +217,7 @@ export function useRemoteSession(): RemoteSessionHook {
     codecPreference,
     codecAbilities,
     imageQuality,
+    clipboardSync,
     connect,
     send2fa,
     close,
@@ -202,5 +227,7 @@ export function useRemoteSession(): RemoteSessionHook {
     setCodecPreference,
     setImageQuality,
     setCustomImageQuality,
+    setClipboardSync,
+    sendClipboard,
   };
 }
