@@ -19,6 +19,13 @@ export interface CursorPosition {
   y: number;
 }
 
+export interface MessageBoxData {
+  msgType?: string;
+  title?: string;
+  text?: string;
+  link?: string;
+}
+
 export interface RemoteSessionHook {
   state: SessionState;
   peerInfo: PeerInfoT | null;
@@ -29,6 +36,7 @@ export interface RemoteSessionHook {
   cursorData: CursorData | null;
   cursorPosition: CursorPosition | null;
   latency: number | null;
+  messageBox: MessageBoxData | null;
   muted: boolean;
   audioEnabled: boolean;
   codecPreference: CodecPreference;
@@ -46,6 +54,7 @@ export interface RemoteSessionHook {
   setCustomImageQuality: (quality: number) => void;
   setClipboardSync: (enabled: boolean) => void;
   sendClipboard: (text: string) => void;
+  dismissMessageBox: () => void;
 }
 
 export function useRemoteSession(): RemoteSessionHook {
@@ -59,6 +68,7 @@ export function useRemoteSession(): RemoteSessionHook {
   const [cursorData, setCursorData] = useState<CursorData | null>(null);
   const [cursorPosition, setCursorPosition] = useState<CursorPosition | null>(null);
   const [latency, setLatency] = useState<number | null>(null);
+  const [messageBox, setMessageBox] = useState<MessageBoxData | null>(null);
   const [muted, setMutedState] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [codecPreference, setCodecPreferenceState] = useState<CodecPreference>(CodecPreference.Auto);
@@ -84,6 +94,7 @@ export function useRemoteSession(): RemoteSessionHook {
       setCursorData(null);
       setCursorPosition(null);
       setLatency(null);
+      setMessageBox(null);
 
       const session = new RemoteSession(config);
       sessionRef.current = session;
@@ -111,6 +122,14 @@ export function useRemoteSession(): RemoteSessionHook {
           setCursorPosition({ x: pos.x ?? 0, y: pos.y ?? 0 });
         },
         latency: (ms) => setLatency(ms),
+        messageBox: (box) => {
+          setMessageBox({
+            msgType: box.msgType,
+            title: box.title,
+            text: box.text,
+            link: box.link,
+          });
+        },
         audioFormat: async (fmt) => {
           const sr = fmt.sampleRate ?? 48000;
           const ch = fmt.channels ?? 2;
@@ -195,6 +214,8 @@ export function useRemoteSession(): RemoteSessionHook {
     sessionRef.current?.sendClipboard(content);
   }, []);
 
+  const dismissMessageBox = useCallback(() => setMessageBox(null), []);
+
   useEffect(() => {
     return () => {
       sessionRef.current?.close();
@@ -212,6 +233,7 @@ export function useRemoteSession(): RemoteSessionHook {
     cursorData,
     cursorPosition,
     latency,
+    messageBox,
     muted,
     audioEnabled,
     codecPreference,
@@ -229,5 +251,6 @@ export function useRemoteSession(): RemoteSessionHook {
     setCustomImageQuality,
     setClipboardSync,
     sendClipboard,
+    dismissMessageBox,
   };
 }

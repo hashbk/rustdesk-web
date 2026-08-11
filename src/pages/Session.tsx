@@ -331,6 +331,30 @@ export function SessionPage({ config, onExit }: Props) {
           ))}
         </div>
       )}
+
+      {session.messageBox && (
+        <div className="modal-overlay" onClick={session.dismissMessageBox}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 12px' }}>
+              {session.messageBox.title || '消息'}
+            </h3>
+            <p style={{ margin: '0 0 16px', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+              {session.messageBox.text}
+            </p>
+            {session.messageBox.link && (
+              <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--accent)' }}>
+                {session.messageBox.link}
+              </p>
+            )}
+            <button
+              className="btn btn-primary"
+              onClick={session.dismissMessageBox}
+            >
+              确定
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
