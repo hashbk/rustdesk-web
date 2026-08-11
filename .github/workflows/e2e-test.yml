@@ -1,0 +1,169 @@
+name: E2E Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # ------------------------------------------------------------------
+  # Bridge smoke test: build the TS bridge, serve it, and verify that
+  # the IIFE bundle installs window.setByName / window.getByName /
+  # window.init and that main_* methods are routable.
+  # ------------------------------------------------------------------
+  bridge-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build bridge layer
+        run: npm run build:bridge
+
+      - name: Verify bridge.js exists
+        run: |
+          test -f dist/bridge.js || { echo "dist/bridge.js not found"; exit 1; }
+          echo "bridge.js size: $(wc -c < dist/bridge.js) bytes"
+
+      - name: Serve bridge.js and run smoke test
+        run: |
+          # Start a simple HTTP server in the background
+          npx --yes http-server dist -p 8099 -s &
+          SERVER_PID=$!
+          sleep 2
+
+          # Check that bridge.js is served
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8099/bridge.js)
+          if [ "$STATUS" != "200" ]; then
+            echo "Failed to fetch bridge.js: HTTP $STATUS"
+            kill $SERVER_PID
+            exit 1
+          fi
+          echo "bridge.js served with HTTP 200"
+
+          # Verify the bundle contains the IIFE global
+          if ! grep -q "RustDeskBridge" dist/bridge.js; then
+            echo "bridge.js does not contain RustDeskBridge IIFE"
+            kill $SERVER_PID
+            exit 1
+          fi
+          echo "RustDeskBridge IIFE found in bundle"
+
+          kill $SERVER_PID
+
+      - name: Run bridge integration test (jsdom)
+        run: |
+          # Use vitest with jsdom to verify the bridge globals work
+          # end-to-end: install, setByName, getByName, and main_* routing.
+          npx vitest run src/bridge/__tests__/main-handlers.test.ts --reporter=verbose
+
+  # ------------------------------------------------------------------
+  # Full Flutter Web e2e: build the bridge, build Flutter Web, serve
+  # the combined app, and verify that index.html loads and references
+  # bridge.js.
+  # ------------------------------------------------------------------
+  flutter-web-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build TS bridge layer
+        run: npm run build:bridge
+
+      - name: Copy bridge to flutter web
+        run: |
+          mkdir -p vendor/rustdesk/flutter/web/js
+          cp flutter-web/index.html vendor/rustdesk/flutter/web/index.html
+          cp flutter-web/manifest.json vendor/rustdesk/flutter/web/manifest.json
+          cp -r flutter-web/icons/ vendor/rustdesk/flutter/web/icons/ 2>/dev/null || true
+          cp dist/bridge.js vendor/rustdesk/flutter/web/js/bridge.js
+
+      - name: Flutter pub get
+        run: cd vendor/rustdesk/flutter && flutter pub get
+
+      - name: Flutter build web
+        run: cd vendor/rustdesk/flutter && flutter build web --release
+
+      - name: Verify Flutter web build output
+        run: |
+          WEB_DIR="vendor/rustdesk/flutter/build/web"
+          test -f "$WEB_DIR/index.html" || { echo "index.html not found"; exit 1; }
+          test -f "$WEB_DIR/js/bridge.js" || { echo "bridge.js not found in web build"; exit 1; }
+          test -f "$WEB_DIR/flutter.js" || { echo "flutter.js not found"; exit 1; }
+          echo "All expected files present in Flutter web build"
+
+      - name: Serve Flutter web and run smoke test
+        run: |
+          WEB_DIR="vendor/rustdesk/flutter/build/web"
+          npx --yes http-server "$WEB_DIR" -p 8099 -s &
+          SERVER_PID=$!
+          sleep 3
+
+          # Check that index.html loads
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8099/)
+          if [ "$STATUS" != "200" ]; then
+            echo "Failed to fetch index.html: HTTP $STATUS"
+            kill $SERVER_PID
+            exit 1
+          fi
+          echo "index.html served with HTTP 200"
+
+          # Check that bridge.js is accessible
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8099/js/bridge.js)
+          if [ "$STATUS" != "200" ]; then
+            echo "Failed to fetch bridge.js: HTTP $STATUS"
+            kill $SERVER_PID
+            exit 1
+          fi
+          echo "bridge.js served with HTTP 200"
+
+          # Check that index.html references bridge.js
+          if ! curl -s http://localhost:8099/ | grep -q "bridge.js"; then
+            echo "index.html does not reference bridge.js"
+            kill $SERVER_PID
+            exit 1
+          fi
+          echo "index.html references bridge.js"
+
+          # Check that main.js (Flutter entry) is present
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8099/flutter.js)
+          if [ "$STATUS" != "200" ]; then
+            echo "Failed to fetch flutter.js: HTTP $STATUS"
+            kill $SERVER_PID
+            exit 1
+          fi
+          echo "flutter.js served with HTTP 200"
+
+          kill $SERVER_PID
+          echo "E2E smoke test passed!"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: flutter-web-e2e-build
+          path: vendor/rustdesk/flutter/build/web/

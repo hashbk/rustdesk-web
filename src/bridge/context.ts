@@ -35,6 +35,12 @@ const LS_GROUP = 'rustdesk-web:group';
 const LS_AUDIT_GUID = 'rustdesk-web:audit-guid';
 const LS_AUDIT_NOTE = 'rustdesk-web:last-audit-note';
 const LS_REMEMBER = 'rustdesk-web:remember';
+const LS_PEER_OPTIONS = 'rustdesk-web:peer-options';
+const LS_TEMP_PASSWORD = 'rustdesk-web:temp-password';
+const LS_PERM_PASSWORD = 'rustdesk-web:perm-password';
+const LS_COMMON = 'rustdesk-web:common';
+const LS_THEME = 'rustdesk-web:theme';
+const LS_LANGUAGE = 'rustdesk-web:language';
 
 /** Default public rendezvous server (matches RustDesk default). */
 export const DEFAULT_SERVER: ServerConfigLike = {
@@ -622,6 +628,122 @@ export class BridgeContext {
   // ---- terminal (stub; no terminal manager yet) ----
 
   // ---- misc stubs return empty ----
+
+  // ---- per-peer options (keyed by peerId:optionKey) ----
+
+  private getPeerOptionsMap(): Record<string, Record<string, string>> {
+    const raw = lsGet(LS_PEER_OPTIONS);
+    if (!raw) return {};
+    try {
+      return JSON.parse(raw) as Record<string, Record<string, string>>;
+    } catch {
+      return {};
+    }
+  }
+
+  getPeerOption(peerId: string, key: string): string {
+    return this.getPeerOptionsMap()[peerId]?.[key] ?? '';
+  }
+
+  setPeerOption(peerId: string, key: string, value: string): void {
+    const map = this.getPeerOptionsMap();
+    if (!map[peerId]) map[peerId] = {};
+    map[peerId][key] = value;
+    lsSet(LS_PEER_OPTIONS, JSON.stringify(map));
+  }
+
+  // ---- temporary / permanent password ----
+
+  getTemporaryPassword(): string {
+    return lsGet(LS_TEMP_PASSWORD);
+  }
+
+  setTemporaryPassword(pwd: string): void {
+    lsSet(LS_TEMP_PASSWORD, pwd);
+  }
+
+  getPermanentPassword(): string {
+    return lsGet(LS_PERM_PASSWORD);
+  }
+
+  setPermanentPassword(pwd: string): void {
+    lsSet(LS_PERM_PASSWORD, pwd);
+  }
+
+  // ---- common options (shared across peers) ----
+
+  getCommon(key: string): string {
+    const raw = lsGet(LS_COMMON);
+    if (!raw) return '';
+    try {
+      return (JSON.parse(raw) as Record<string, string>)[key] ?? '';
+    } catch {
+      return '';
+    }
+  }
+
+  setCommon(key: string, value: string): void {
+    let map: Record<string, string> = {};
+    try {
+      map = JSON.parse(lsGet(LS_COMMON) || '{}') as Record<string, string>;
+    } catch {
+      map = {};
+    }
+    map[key] = value;
+    lsSet(LS_COMMON, JSON.stringify(map));
+  }
+
+  // ---- theme / language ----
+
+  getTheme(): string {
+    return lsGet(LS_THEME);
+  }
+
+  setTheme(theme: string): void {
+    lsSet(LS_THEME, theme);
+  }
+
+  getLanguage(): string {
+    return lsGet(LS_LANGUAGE);
+  }
+
+  setLanguage(lang: string): void {
+    lsSet(LS_LANGUAGE, lang);
+  }
+
+  // ---- device info (browser-derived) ----
+
+  getDeviceId(): string {
+    return this.getMyId();
+  }
+
+  getDeviceName(): string {
+    return this.getMyName();
+  }
+
+  // ---- new version (no update check on web) ----
+
+  getNewVersion(): string {
+    return APP_VERSION;
+  }
+
+  // ---- software update url (stub) ----
+
+  getSoftwareUpdateUrl(): string {
+    return '';
+  }
+
+  // ---- fingerprint (stub) ----
+
+  getFingerprint(): string {
+    return '';
+  }
+
+  // ---- home dir (empty on web) ----
+
+  getHomeDir(): string {
+    return '';
+  }
 
   /** Reset all in-memory state (tests use this). */
   reset(): void {
