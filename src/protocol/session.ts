@@ -40,6 +40,14 @@ export enum PrivacyModeState {
   PrvOffUnknown = 11,
 }
 
+export enum BlockInputState {
+  BlkStateUnknown = 0,
+  BlkOnSucceeded = 2,
+  BlkOnFailed = 3,
+  BlkOffSucceeded = 4,
+  BlkOffFailed = 5,
+}
+
 export enum BoolOption {
   NotSet = 0,
   No = 1,
@@ -48,6 +56,11 @@ export enum BoolOption {
 
 export interface PrivacyModeNotification {
   state: PrivacyModeState;
+  details?: string;
+}
+
+export interface BlockInputNotification {
+  state: BlockInputState;
   details?: string;
 }
 
@@ -83,6 +96,7 @@ export interface SessionEvents {
   terminalResponse: (resp: NonNullable<MessageT['terminalResponse']>) => void;
   elevationResponse: (response: string) => void;
   privacyModeState: (notification: PrivacyModeNotification) => void;
+  blockInputState: (notification: BlockInputNotification) => void;
   need2fa: () => void;
   closeReason: (reason: string) => void;
   error: (error: Error) => void;
@@ -552,6 +566,15 @@ export class RemoteSession {
     this.log(`privacy mode toggle: ${enabled ? 'on' : 'off'}`);
   }
 
+  sendBlockInput(enabled: boolean): void {
+    if (this.state !== 'connected') return;
+    const msg: MessageT = {
+      misc: { option: { blockInput: enabled ? BoolOption.Yes : BoolOption.No } },
+    };
+    this.relayStream?.send(encodeMessage(msg));
+    this.log(`block input: ${enabled ? 'on' : 'off'}`);
+  }
+
   sendRestartRemoteDevice(): void {
     if (this.state !== 'connected') return;
     const msg: MessageT = {
@@ -600,14 +623,20 @@ export class RemoteSession {
     if (misc.switchDisplay) this.emit('switchDisplay', misc.switchDisplay);
     if (misc.refreshVideo) this.log('peer requested video refresh');
     if (misc.backNotification) {
-      const bn = misc.backNotification as { privacyModeState?: number; details?: string };
+      const bn = misc.backNotification as { privacyModeState?: number; blockInputState?: number; details?: string };
       if (bn.privacyModeState !== undefined && bn.privacyModeState !== null) {
         this.emit('privacyModeState', {
           state: bn.privacyModeState as PrivacyModeState,
           details: bn.details,
         });
       }
-      this.log(`back notification received: privacyModeState=${bn.privacyModeState ?? 'n/a'}`);
+      if (bn.blockInputState !== undefined && bn.blockInputState !== null) {
+        this.emit('blockInputState', {
+          state: bn.blockInputState as BlockInputState,
+          details: bn.details,
+        });
+      }
+      this.log(`back notification received: privacyModeState=${bn.privacyModeState ?? 'n/a'} blockInputState=${bn.blockInputState ?? 'n/a'}`);
     }
     if (misc.elevation_response !== undefined) {
       this.emit('elevationResponse', misc.elevation_response as string);

@@ -303,6 +303,15 @@ export function SessionPage({ config, onExit }: Props) {
         {connected && (
           <button
             className="btn"
+            onClick={session.toggleBlockInput}
+            title="阻止/允许远程用户输入"
+          >
+            {session.blockInput ? '阻止输入✓' : '阻止输入'}
+          </button>
+        )}
+        {connected && (
+          <button
+            className="btn"
             onClick={() => setShowSettings((v) => !v)}
             title="会话选项"
           >
@@ -537,6 +546,23 @@ export function SessionPage({ config, onExit }: Props) {
             <button
               className="btn btn-primary"
               onClick={session.dismissPrivacyModeMessage}
+            >
+              确定
+            </button>
+          </div>
+        </div>
+      )}
+
+      {session.blockInputMessage !== null && (
+        <div className="modal-overlay" onClick={session.dismissBlockInputMessage}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 12px' }}>阻止输入</h3>
+            <p style={{ margin: '0 0 16px', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+              {session.blockInputMessage}
+            </p>
+            <button
+              className="btn btn-primary"
+              onClick={session.dismissBlockInputMessage}
             >
               确定
             </button>
