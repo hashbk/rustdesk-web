@@ -38,6 +38,7 @@ export interface SessionEvents {
   latency: (ms: number) => void;
   messageBox: (box: NonNullable<MessageT['messageBox']>) => void;
   switchDisplay: (display: unknown) => void;
+  fileResponse: (resp: NonNullable<MessageT['fileResponse']>) => void;
   need2fa: () => void;
   closeReason: (reason: string) => void;
   error: (error: Error) => void;
@@ -401,6 +402,7 @@ export class RemoteSession {
         }
       }
       else if (msg.messageBox) this.emit('messageBox', msg.messageBox);
+      else if (msg.fileResponse) this.emit('fileResponse', msg.fileResponse);
       else if (msg.misc) this.handleMisc(msg.misc);
       else if (msg.option) this.log('server option update received');
       else if (msg.refresh) this.handleRefresh();
@@ -425,6 +427,16 @@ export class RemoteSession {
   sendClipboard(content: Uint8Array): void {
     if (this.state !== 'connected') return;
     this.relayStream?.send(encodeMessage({ clipboard: { content } }));
+  }
+
+  sendFileAction(action: NonNullable<MessageT['fileAction']>): void {
+    if (this.state !== 'connected') return;
+    this.relayStream?.send(encodeMessage({ fileAction: action }));
+  }
+
+  sendFileResponse(resp: NonNullable<MessageT['fileResponse']>): void {
+    if (this.state !== 'connected') return;
+    this.relayStream?.send(encodeMessage({ fileResponse: resp }));
   }
 
   sendSwitchDisplay(display: number): void {
