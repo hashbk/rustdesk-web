@@ -89,6 +89,8 @@ function modifiers(e: KeyboardEvent): number[] {
 }
 
 export class KeyboardAdapter {
+  private pressedControlKeys = new Set<number>();
+
   constructor(private readonly send: (event: KeyEventT) => void) {}
 
   handle(e: KeyboardEvent): boolean {
@@ -99,6 +101,8 @@ export class KeyboardAdapter {
     const ck = CODE_TO_CONTROL[e.code];
 
     if (ck !== undefined) {
+      if (down) this.pressedControlKeys.add(ck);
+      else this.pressedControlKeys.delete(ck);
       this.send({ down, controlKey: ck, modifiers: mods, mode: KeyboardMode.Legacy });
       return true;
     }
@@ -110,6 +114,13 @@ export class KeyboardAdapter {
     }
 
     return false;
+  }
+
+  releaseAll(): void {
+    for (const ck of this.pressedControlKeys) {
+      this.send({ down: false, controlKey: ck, modifiers: [], mode: KeyboardMode.Legacy });
+    }
+    this.pressedControlKeys.clear();
   }
 
   handleCompositionEnd(e: CompositionEvent): boolean {
