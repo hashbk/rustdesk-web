@@ -552,6 +552,15 @@ export class RemoteSession {
     this.log(`privacy mode toggle: ${enabled ? 'on' : 'off'}`);
   }
 
+  sendRestartRemoteDevice(): void {
+    if (this.state !== 'connected') return;
+    const msg: MessageT = {
+      misc: { restartRemoteDevice: true },
+    };
+    this.relayStream?.send(encodeMessage(msg));
+    this.log('restart remote device requested');
+  }
+
   sendImageQuality(quality: ImageQuality): void {
     if (this.state !== 'connected') return;
     const msg: MessageT = {
