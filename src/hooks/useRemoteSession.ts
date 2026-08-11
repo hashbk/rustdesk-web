@@ -57,6 +57,7 @@ export interface RemoteSessionHook {
   sendClipboard: (text: string) => void;
   dismissMessageBox: () => void;
   sendSwitchDisplay: (display: number) => void;
+  sendRestartRemoteDevice: () => void;
   readRemoteDir: (path: string) => void;
   uploadFile: (file: File, remotePath: string) => Promise<void>;
   cancelTransfer: (id: number) => void;
@@ -310,6 +311,10 @@ export function useRemoteSession(): RemoteSessionHook {
     sessionRef.current?.sendSwitchDisplay(display);
   }, []);
 
+  const sendRestartRemoteDevice = useCallback(() => {
+    sessionRef.current?.sendRestartRemoteDevice();
+  }, []);
+
   const readRemoteDir = useCallback((path: string) => {
     ftmRef.current?.readRemoteDir(path);
   }, []);
@@ -433,6 +438,7 @@ export function useRemoteSession(): RemoteSessionHook {
     sendClipboard,
     dismissMessageBox,
     sendSwitchDisplay,
+    sendRestartRemoteDevice,
     readRemoteDir,
     uploadFile,
     cancelTransfer,

@@ -38,6 +38,7 @@ export function SessionPage({ config, onExit }: Props) {
   const [showTerminal, setShowTerminal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showElevationDialog, setShowElevationDialog] = useState(false);
+  const [showRestartConfirm, setShowRestartConfirm] = useState(false);
   const [elevationMode, setElevationMode] = useState<'direct' | 'logon'>('direct');
   const [elevationUsername, setElevationUsername] = useState('');
   const [elevationPassword, setElevationPassword] = useState('');
@@ -317,6 +318,15 @@ export function SessionPage({ config, onExit }: Props) {
             {isFullscreen ? '退出全屏' : '全屏'}
           </button>
         )}
+        {connected && session.peerInfo && ['Linux', 'Windows', 'Mac OS'].includes(session.peerInfo.platform ?? '') && (
+          <button
+            className="btn btn-danger"
+            onClick={() => setShowRestartConfirm(true)}
+            title="重启远程设备"
+          >
+            重启
+          </button>
+        )}
         <button className="btn" onClick={() => setShowLogs((v) => !v)}>
           {showLogs ? '隐藏日志' : '日志'}
         </button>
@@ -530,6 +540,31 @@ export function SessionPage({ config, onExit }: Props) {
             >
               确定
             </button>
+          </div>
+        </div>
+      )}
+
+      {showRestartConfirm && (
+        <div className="modal-overlay" onClick={() => setShowRestartConfirm(false)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 12px' }}>重启远程设备</h3>
+            <p style={{ margin: '0 0 16px', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+              确定要重启远程设备吗？
+            </p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="btn" onClick={() => setShowRestartConfirm(false)}>
+                取消
+              </button>
+              <button
+                className="btn btn-danger"
+                onClick={() => {
+                  session.sendRestartRemoteDevice();
+                  setShowRestartConfirm(false);
+                }}
+              >
+                重启
+              </button>
+            </div>
           </div>
         </div>
       )}
