@@ -14,6 +14,16 @@ export interface SessionConfig {
   myName?: string;
   version?: string;
   server: ServerConfig;
+  codecPreference?: CodecPreference;
+}
+
+export enum CodecPreference {
+  Auto = 0,
+  VP9 = 1,
+  H264 = 2,
+  H265 = 3,
+  VP8 = 4,
+  AV1 = 5,
 }
 
 export enum ConnType {

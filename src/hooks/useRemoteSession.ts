@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { RemoteSession, type SessionState, type SessionEvents } from '../protocol/session';
-import type { SessionConfig } from '../protocol/config';
+import { type SessionConfig, CodecPreference } from '../protocol/config';
 import type { PeerInfoT, VideoFrameT, MessageT } from '../protos';
 import { AudioPlayer } from '../media/AudioPlayer';
+import type { CodecAbilities } from '../media/renderer';
 
 export interface CursorData {
   id: number;
@@ -29,12 +30,15 @@ export interface RemoteSessionHook {
   cursorPosition: CursorPosition | null;
   muted: boolean;
   audioEnabled: boolean;
+  codecPreference: CodecPreference;
+  codecAbilities: CodecAbilities | null;
   connect: (config: SessionConfig) => void;
   send2fa: (code: string) => void;
   close: () => void;
   sendMouse: (event: NonNullable<MessageT['mouseEvent']>) => void;
   sendKey: (event: NonNullable<MessageT['keyEvent']>) => void;
   setMuted: (muted: boolean) => void;
+  setCodecPreference: (prefer: CodecPreference) => void;
 }
 
 export function useRemoteSession(): RemoteSessionHook {
@@ -49,6 +53,8 @@ export function useRemoteSession(): RemoteSessionHook {
   const [cursorPosition, setCursorPosition] = useState<CursorPosition | null>(null);
   const [muted, setMutedState] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(false);
+  const [codecPreference, setCodecPreferenceState] = useState<CodecPreference>(CodecPreference.Auto);
+  const [codecAbilities, setCodecAbilities] = useState<CodecAbilities | null>(null);
   const seqRef = useRef(0);
   const audioPlayerRef = useRef<AudioPlayer | null>(null);
   const mutedRef = useRef(false);
@@ -71,7 +77,10 @@ export function useRemoteSession(): RemoteSessionHook {
       sessionRef.current = session;
       const handlers: Partial<SessionEvents> = {
         stateChange: setState,
-        peerInfo: setPeerInfo,
+        peerInfo: (info) => {
+          setPeerInfo(info);
+          setCodecAbilities(sessionRef.current?.getCodecAbilities() ?? null);
+        },
         videoFrame: (frame) => {
           seqRef.current += 1;
           setVideoFrame({ frame, seq: seqRef.current });
@@ -139,6 +148,11 @@ export function useRemoteSession(): RemoteSessionHook {
     audioPlayerRef.current?.setMuted(m);
   }, []);
 
+  const setCodecPreference = useCallback((prefer: CodecPreference) => {
+    setCodecPreferenceState(prefer);
+    sessionRef.current?.sendCodecPreference(prefer);
+  }, []);
+
   useEffect(() => {
     return () => {
       sessionRef.current?.close();
@@ -157,11 +171,14 @@ export function useRemoteSession(): RemoteSessionHook {
     cursorPosition,
     muted,
     audioEnabled,
+    codecPreference,
+    codecAbilities,
     connect,
     send2fa,
     close,
     sendMouse,
     sendKey,
     setMuted,
+    setCodecPreference,
   };
 }

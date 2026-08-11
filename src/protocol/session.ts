@@ -13,7 +13,7 @@ import {
   type VideoFrameT,
   type HashT,
 } from '../protos';
-import { ConnType, rendezvousWsUrl, relayWsUrl, type SessionConfig, type ServerConfig } from './config';
+import { ConnType, rendezvousWsUrl, relayWsUrl, type SessionConfig, type ServerConfig, CodecPreference } from './config';
 import { detectCodecAbilities } from '../media/renderer';
 
 export type SessionState =
@@ -88,6 +88,7 @@ export class RemoteSession {
   private config: SessionConfig;
   private myId: string;
   private closed = false;
+  private codecAbilities: { vp8: boolean; vp9: boolean; av1: boolean; h264: boolean; h265: boolean } | null = null;
 
   constructor(config: SessionConfig) {
     this.config = config;
@@ -306,7 +307,9 @@ export class RemoteSession {
     }
     const passwordHash = await computePasswordHash(this.config.password, hash.salt, hash.challenge);
     const abilities = await detectCodecAbilities();
+    this.codecAbilities = abilities;
     this.log(`codec support: vp9=${abilities.vp9} h264=${abilities.h264} h265=${abilities.h265} av1=${abilities.av1} vp8=${abilities.vp8}`);
+    const prefer = this.config.codecPreference ?? CodecPreference.Auto;
     const loginMsg: MessageT = {
       loginRequest: {
         username: this.config.peerId,
@@ -324,7 +327,7 @@ export class RemoteSession {
             abilityH265: abilities.h265 ? 1 : 0,
             abilityVp8: abilities.vp8 ? 1 : 0,
             abilityAv1: 0,
-            prefer: 0,
+            prefer,
           },
         },
       },
@@ -407,6 +410,31 @@ export class RemoteSession {
   sendClipboard(content: Uint8Array): void {
     if (this.state !== 'connected') return;
     this.relayStream?.send(encodeMessage({ clipboard: { content } }));
+  }
+
+  sendCodecPreference(prefer: CodecPreference): void {
+    if (this.state !== 'connected' || !this.codecAbilities) return;
+    const a = this.codecAbilities;
+    const msg: MessageT = {
+      misc: {
+        option: {
+          supportedDecoding: {
+            abilityVp9: a.vp9 ? 1 : 0,
+            abilityH264: a.h264 ? 1 : 0,
+            abilityH265: a.h265 ? 1 : 0,
+            abilityVp8: a.vp8 ? 1 : 0,
+            abilityAv1: 0,
+            prefer,
+          },
+        },
+      },
+    };
+    this.relayStream?.send(encodeMessage(msg));
+    this.log(`codec preference updated: ${CodecPreference[prefer] ?? prefer}`);
+  }
+
+  getCodecAbilities() {
+    return this.codecAbilities;
   }
 
   close(): void {
