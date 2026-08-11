@@ -3,6 +3,7 @@ import { decompress as zstdDecompress } from 'fzstd';
 import { VideoRenderer, type RenderStats } from '../media/renderer';
 import { MouseAdapter } from '../input/mouse';
 import { KeyboardAdapter } from '../input/keyboard';
+import { TouchAdapter } from '../input/touch';
 import type { PeerInfoT, VideoFrameT, MessageT } from '../protos';
 import type { CursorData, CursorPosition } from '../hooks/useRemoteSession';
 
@@ -33,6 +34,7 @@ export function RemoteScreen({
 
   const rendererRef = useRef<VideoRenderer | null>(null);
   const mouseRef = useRef<MouseAdapter | null>(null);
+  const touchRef = useRef<TouchAdapter | null>(null);
   const keyboardRef = useRef<KeyboardAdapter | null>(null);
   const [cursorUrl, setCursorUrl] = useState<string | null>(null);
   const cursorUrlRef = useRef<string | null>(null);
@@ -84,6 +86,7 @@ export function RemoteScreen({
     if (display) {
       rendererRef.current.setDisplaySize(display.width, display.height);
       mouseRef.current?.setDisplaySize(display.width, display.height);
+      touchRef.current?.setDisplaySize(display.width, display.height);
     }
   }, [peerInfo]);
 
@@ -93,6 +96,13 @@ export function RemoteScreen({
     if (!display) return;
     if (!mouseRef.current) {
       mouseRef.current = new MouseAdapter({
+        displayWidth: display.width,
+        displayHeight: display.height,
+        send: sendMouse,
+      });
+    }
+    if (!touchRef.current) {
+      touchRef.current = new TouchAdapter({
         displayWidth: display.width,
         displayHeight: display.height,
         send: sendMouse,
@@ -166,8 +176,30 @@ export function RemoteScreen({
         onMouseUp={(e) => handleMouse('up', e)}
         onWheel={(e) => handleMouse('wheel', e)}
         onContextMenu={(e) => e.preventDefault()}
-        style={{ cursor: cursorStyle, ...(scaleMode === 'original' ? { maxWidth: 'none', maxHeight: 'none' } : {}) }}
+        onTouchStart={(e) => {
+          if (viewOnly) return;
+          const canvas = canvasRef.current;
+          if (!canvas || !touchRef.current) return;
+          touchRef.current.onTouchStart(e.nativeEvent, canvas.getBoundingClientRect());
+          e.preventDefault();
+        }}
+        onTouchMove={(e) => {
+          if (viewOnly) return;
+          const canvas = canvasRef.current;
+          if (!canvas || !touchRef.current) return;
+          touchRef.current.onTouchMove(e.nativeEvent, canvas.getBoundingClientRect());
+          e.preventDefault();
+        }}
+        onTouchEnd={(e) => {
+          if (viewOnly) return;
+          const canvas = canvasRef.current;
+          if (!canvas || !touchRef.current) return;
+          touchRef.current.onTouchEnd(e.nativeEvent, canvas.getBoundingClientRect());
+          e.preventDefault();
+        }}
+        style={{ cursor: cursorStyle, touchAction: 'none', ...(scaleMode === 'original' ? { maxWidth: 'none', maxHeight: 'none' } : {}) }}
       />
+
 
       {cursorPosition && !cursorUrl && (
         <CursorDot position={cursorPosition} displayWidth={peerInfo?.displays?.[peerInfo.currentDisplay ?? 0]?.width ?? 1} displayHeight={peerInfo?.displays?.[peerInfo.currentDisplay ?? 0]?.height ?? 1} canvasRef={canvasRef} />
