@@ -225,6 +225,42 @@ function buildSessionConfig(ctx: BridgeContext, payload: SessionAddSyncPayload):
   };
 }
 
+/** Option keys that map to ServerConfig fields. */
+const SERVER_OPTION_KEYS = new Set([
+  'custom-rendezvous-server',
+  'relay-server',
+  'api-server',
+  'key',
+]);
+
+/**
+ * When a server-related option changes, sync it into `ctx.server` so that
+ * `api_server`, `is_using_public_server`, and `buildSessionConfig` reflect
+ * the new value immediately (mirrors RustDesk native behaviour where the
+ * in-memory ServerConfig is derived from options on every access).
+ */
+function syncServerOption(ctx: BridgeContext, key: string, value: string): void {
+  if (!SERVER_OPTION_KEYS.has(key)) return;
+  const server = { ...ctx.getServer() };
+  switch (key) {
+    case 'custom-rendezvous-server':
+      server.rendezvousHost = value || server.rendezvousHost;
+      break;
+    case 'relay-server':
+      server.relayHost = value;
+      break;
+    case 'api-server':
+      server.apiHost = value;
+      if (value.startsWith('https://')) server.useWss = true;
+      else if (value.startsWith('http://')) server.useWss = false;
+      break;
+    case 'key':
+      server.key = value || server.key;
+      break;
+  }
+  ctx.setServer(server);
+}
+
 /**
  * Build the setByName handler registry for the given context.
  */
@@ -480,12 +516,18 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
 
     options: (value: string) => {
       const opts = parseJson<Record<string, string>>(value);
-      if (opts && typeof opts === 'object') ctx.setOptions(opts);
+      if (opts && typeof opts === 'object') {
+        ctx.setOptions(opts);
+        for (const [k, v] of Object.entries(opts)) syncServerOption(ctx, k, v);
+      }
     },
 
     option: (value: string) => {
       const payload = parseJson<OptionPayload>(value);
-      if (payload && payload.name) ctx.setOption(payload.name, payload.value);
+      if (payload && payload.name) {
+        ctx.setOption(payload.name, payload.value);
+        syncServerOption(ctx, payload.name, payload.value);
+      }
     },
 
     'option:local': (value: string) => {
@@ -869,6 +911,7 @@ export function createGetRegistry(ctx: BridgeContext): GetRegistry {
     // ---- server ----
     api_server: () => {
       const s = ctx.getServer();
+      if (s.apiHost) return s.apiHost;
       const scheme = s.useWss ? 'https' : 'http';
       return `${scheme}://${s.rendezvousHost}`;
     },
