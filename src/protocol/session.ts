@@ -505,6 +505,11 @@ export class RemoteSession {
     this.relayStream?.send(encodeMessage({ terminalAction: action }));
   }
 
+  sendMisc(msg: MessageT): void {
+    if (this.state !== 'connected') return;
+    this.relayStream?.send(encodeMessage(msg));
+  }
+
   sendSwitchDisplay(display: number): void {
     if (this.state !== 'connected') return;
     const msg: MessageT = {

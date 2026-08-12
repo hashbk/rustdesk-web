@@ -95,6 +95,78 @@ export interface EnvVarPayload {
   value?: string;
 }
 
+/** JSON payload of `flutter_key_event`. */
+export interface FlutterKeyEventPayload {
+  name: string;
+  usb_hid: number;
+  lock_modes: number;
+  down?: string;
+}
+
+/** JSON payload of file-transfer actions (remove_file, create_dir, etc.). */
+export interface FileActionPayload {
+  id: number;
+  path: string;
+  file_num?: number;
+  is_remote?: boolean;
+  show_hidden?: boolean;
+  new_name?: string;
+}
+
+/** JSON payload of `change_resolution`. */
+export interface ChangeResolutionPayload {
+  display: number;
+  width: number;
+  height: number;
+}
+
+/** JSON payload of `toggle_virtual_display`. */
+export interface ToggleVirtualDisplayPayload {
+  index: number;
+  on: boolean;
+}
+
+/** JSON payload of `option:peer` (get). */
+export interface PeerOptionGetPayload {
+  id: string;
+  name: string;
+}
+
+/** JSON payload of `option:peer` (set). */
+export interface PeerOptionSetPayload {
+  id: string;
+  name: string;
+  value: string;
+}
+
+/** JSON payload of `account_auth`. */
+export interface AccountAuthPayload {
+  op: string;
+  remember: boolean;
+}
+
+/** JSON payload of terminal actions. */
+export interface TerminalOpenPayload {
+  terminal_id: number;
+  rows: number;
+  cols: number;
+}
+
+export interface TerminalInputPayload {
+  terminal_id: number;
+  data: string;
+}
+
+export interface TerminalResizePayload {
+  terminal_id: number;
+  rows: number;
+  cols: number;
+}
+
+export interface TerminalClosePayload {
+  terminal_id: number;
+}
+
 /** Result of `alternative_codecs` query. */
 export interface AlternativeCodecs {
   vp8: boolean;

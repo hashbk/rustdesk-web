@@ -33,6 +33,17 @@ import type {
   OptionPayload,
   EnvVarPayload,
   AlternativeCodecs,
+  FlutterKeyEventPayload,
+  FileActionPayload,
+  ChangeResolutionPayload,
+  ToggleVirtualDisplayPayload,
+  PeerOptionGetPayload,
+  PeerOptionSetPayload,
+  AccountAuthPayload,
+  TerminalOpenPayload,
+  TerminalInputPayload,
+  TerminalResizePayload,
+  TerminalClosePayload,
 } from './types';
 
 /** Map a control-key name (from input_key JSON) to the ControlKey enum value. */
@@ -59,6 +70,75 @@ const NAME_TO_CONTROL_KEY: Record<string, number> = {
   UpArrow: 32,
   Insert: 58,
   NumLock: 63,
+};
+
+/**
+ * Map USB HID usage codes (page 0x07) to ControlKey enum values.
+ * Used by `flutter_key_event` to translate Flutter key events.
+ * Only non-character keys are listed here; character keys (a-z, 0-9)
+ * are handled via the `character` field.
+ */
+const USB_HID_TO_CONTROL_KEY: Record<number, number> = {
+  0x28: 27,  // Enter → Return
+  0x29: 8,   // Escape
+  0x2A: 2,   // Backspace
+  0x2B: 31,  // Tab
+  0x2C: 30,  // Space
+  0x39: 3,   // CapsLock
+  0x3A: 9,   // F1
+  0x3B: 13,  // F2
+  0x3C: 14,  // F3
+  0x3D: 15,  // F4
+  0x3E: 16,  // F5
+  0x3F: 17,  // F6
+  0x40: 18,  // F7
+  0x41: 19,  // F8
+  0x42: 20,  // F9
+  0x43: 10,  // F10
+  0x44: 11,  // F11
+  0x45: 12,  // F12
+  0x46: 62,  // Scroll Lock → Scroll
+  0x47: 46,  // Pause
+  0x48: 58,  // Insert
+  0x49: 21,  // Home
+  0x4A: 26,  // Page Up
+  0x4B: 5,   // Delete
+  0x4C: 7,   // End
+  0x4D: 25,  // Page Down
+  0x4E: 28,  // Right Arrow
+  0x4F: 22,  // Left Arrow
+  0x50: 6,   // Down Arrow
+  0x51: 32,  // Up Arrow
+  0x53: 63,  // NumLock
+  0x54: 70,  // Numpad / → Divide
+  0x55: 66,  // Numpad * → Multiply
+  0x56: 68,  // Numpad - → Subtract
+  0x57: 67,  // Numpad + → Add
+  0x58: 72,  // Numpad Enter → NumpadEnter
+  0x59: 34,  // Numpad 1
+  0x5A: 35,  // Numpad 2
+  0x5B: 36,  // Numpad 3
+  0x5C: 37,  // Numpad 4
+  0x5D: 38,  // Numpad 5
+  0x5E: 39,  // Numpad 6
+  0x5F: 40,  // Numpad 7
+  0x60: 41,  // Numpad 8
+  0x61: 42,  // Numpad 9
+  0x62: 33,  // Numpad 0
+  0x63: 69,  // Numpad . → Decimal
+  0xE0: 4,   // Left Control
+  0xE1: 29,  // Left Shift
+  0xE2: 1,   // Left Alt
+  0xE3: 23,  // Left Meta
+  0xE4: 74,  // Right Control → RControl
+  0xE5: 73,  // Right Shift → RShift
+  0xE6: 75,  // Right Alt → RAlt
+  0xE7: 64,  // Right Meta → RWin
+  // Media keys (Consumer Page, used when character == "flutter_key")
+  0x7F: 76,  // VolumeMute
+  0x80: 77,  // VolumeUp
+  0x81: 78,  // VolumeDown
+  0x66: 79,  // Power
 };
 
 function parseJson<T>(value: string): T | null {
@@ -251,6 +331,30 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
       stub('set', 'enter_or_leave', `enter=${value}`);
     },
 
+    flutter_key_event: (value: string) => {
+      const session = ctx.getSession();
+      if (!session) return;
+      const payload = parseJson<FlutterKeyEventPayload>(value);
+      if (!payload) return;
+      const down = truthy(payload.down);
+      const modifiers: number[] = [];
+      // lock_modes bitmask: bit 1 = CapsLock, bit 2 = NumLock
+      if (payload.lock_modes & (1 << 1)) modifiers.push(3);  // CapsLock
+      if (payload.lock_modes & (1 << 2)) modifiers.push(63); // NumLock
+      const ck = USB_HID_TO_CONTROL_KEY[payload.usb_hid];
+      if (ck !== undefined) {
+        session.sendKey({ down, controlKey: ck, modifiers });
+      } else if (payload.name && payload.name.length === 1) {
+        session.sendKey({ down, chr: payload.name.charCodeAt(0), modifiers });
+      } else if (payload.name && payload.name.length > 1) {
+        // Multi-character name (e.g. "flutter_key" for media keys) — try as unicode
+        const code = payload.name.codePointAt(0);
+        if (code !== undefined) {
+          session.sendKey({ down, unicode: code, modifiers });
+        }
+      }
+    },
+
     // ---- quality / codec / fps ----
     image_quality: (value: string) => {
       const session = ctx.getSession();
@@ -338,6 +442,37 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
       if (Number.isFinite(display)) session.sendSwitchDisplay(display);
     },
 
+    change_resolution: (value: string) => {
+      const session = ctx.getSession();
+      if (!session) return;
+      const payload = parseJson<ChangeResolutionPayload>(value);
+      if (!payload) return;
+      // Use change_display_resolution (misc field 36) for peers >= 1.2.4,
+      // falling back to change_resolution (misc field 24) for older peers.
+      const msg: MessageT = {
+        misc: {
+          change_display_resolution: {
+            display: payload.display,
+            resolution: { width: payload.width, height: payload.height },
+          },
+        },
+      };
+      session.sendMisc(msg);
+    },
+
+    toggle_virtual_display: (value: string) => {
+      const session = ctx.getSession();
+      if (!session) return;
+      const payload = parseJson<ToggleVirtualDisplayPayload>(value);
+      if (!payload) return;
+      const msg: MessageT = {
+        misc: {
+          toggle_virtual_display: { display: payload.index, on: payload.on },
+        },
+      };
+      session.sendMisc(msg);
+    },
+
     // ---- options ----
     'option:toggle': (value: string) => {
       const session = ctx.getSession();
@@ -383,6 +518,23 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
       if (payload && payload.name) ctx.setFlutterPeerOption(payload.name, payload.value);
     },
 
+    'option:peer': (value: string) => {
+      const payload = parseJson<PeerOptionSetPayload>(value);
+      if (payload && payload.id && payload.name) {
+        ctx.setPeerOption(payload.id, payload.name, payload.value);
+      }
+    },
+
+    'option:user:default': (value: string) => {
+      const payload = parseJson<OptionPayload>(value);
+      if (payload && payload.name) ctx.setUserDefaultOption(payload.name, payload.value);
+    },
+
+    common: (value: string) => {
+      const payload = parseJson<OptionPayload>(value);
+      if (payload && payload.name) ctx.setCommon(payload.name, payload.value);
+    },
+
     // ---- favorites ----
     fav: (value: string) => {
       const favs = parseJson<string[]>(value);
@@ -424,6 +576,56 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
 
     confirm_override_file: () => {
       stub('set', 'confirm_override_file');
+    },
+
+    remove_file: (value: string) => {
+      const session = ctx.getSession();
+      if (!session) return;
+      const payload = parseJson<FileActionPayload>(value);
+      if (!payload) return;
+      session.sendFileAction({
+        removeFile: { id: payload.id, path: payload.path, fileNum: payload.file_num ?? 0 },
+      });
+    },
+
+    read_dir_to_remove_recursive: (value: string) => {
+      const session = ctx.getSession();
+      if (!session) return;
+      const payload = parseJson<FileActionPayload>(value);
+      if (!payload) return;
+      session.sendFileAction({
+        readDir: { id: payload.id, path: payload.path, includeHidden: !!payload.show_hidden },
+      });
+    },
+
+    remove_all_empty_dirs: (value: string) => {
+      const session = ctx.getSession();
+      if (!session) return;
+      const payload = parseJson<FileActionPayload>(value);
+      if (!payload) return;
+      session.sendFileAction({
+        removeDir: { id: payload.id, path: payload.path, recursive: true },
+      });
+    },
+
+    create_dir: (value: string) => {
+      const session = ctx.getSession();
+      if (!session) return;
+      const payload = parseJson<FileActionPayload>(value);
+      if (!payload) return;
+      session.sendFileAction({
+        create: { id: payload.id, path: payload.path },
+      });
+    },
+
+    rename_file: (value: string) => {
+      const session = ctx.getSession();
+      if (!session) return;
+      const payload = parseJson<FileActionPayload>(value);
+      if (!payload || !payload.new_name) return;
+      session.sendFileAction({
+        rename: { id: payload.id, path: payload.path, newName: payload.new_name },
+      });
     },
 
     // ---- peers / address book ----
@@ -498,8 +700,23 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
     },
 
     // ---- account auth ----
+    account_auth: (value: string) => {
+      // Account auth uses OIDC redirect flow.  On web, the Dart side
+      // handles the HTTP calls directly; the bridge stores the remember
+      // flag and triggers the auth via a global callback.
+      const payload = parseJson<AccountAuthPayload>(value);
+      if (payload?.remember != null) ctx.setRemember(payload.remember);
+      const cb = (window as unknown as { onAccountAuth?: (op: string, remember: boolean) => void }).onAccountAuth;
+      if (cb && payload) {
+        cb(payload.op, payload.remember);
+      } else {
+        stub('set', 'account_auth', 'no onAccountAuth callback registered');
+      }
+    },
+
     account_auth_cancel: () => {
-      stub('set', 'account_auth_cancel');
+      const cb = (window as unknown as { onAccountAuthCancel?: () => void }).onAccountAuthCancel;
+      cb?.();
     },
 
     // ---- audit ----
@@ -538,6 +755,47 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
     envvar: (value: string) => {
       const payload = parseJson<EnvVarPayload>(value);
       if (payload && payload.name) ctx.setEnvVar(payload.name, payload.value ?? '');
+    },
+
+    // ---- terminal ----
+    open_terminal: (value: string) => {
+      const session = ctx.getSession();
+      if (!session) return;
+      const payload = parseJson<TerminalOpenPayload>(value);
+      if (!payload) return;
+      session.sendTerminalAction({
+        open: { terminalId: payload.terminal_id, rows: payload.rows, cols: payload.cols },
+      });
+    },
+
+    send_terminal_input: (value: string) => {
+      const session = ctx.getSession();
+      if (!session) return;
+      const payload = parseJson<TerminalInputPayload>(value);
+      if (!payload) return;
+      session.sendTerminalAction({
+        data: { terminalId: payload.terminal_id, data: new TextEncoder().encode(payload.data) },
+      });
+    },
+
+    resize_terminal: (value: string) => {
+      const session = ctx.getSession();
+      if (!session) return;
+      const payload = parseJson<TerminalResizePayload>(value);
+      if (!payload) return;
+      session.sendTerminalAction({
+        resize: { terminalId: payload.terminal_id, rows: payload.rows, cols: payload.cols },
+      });
+    },
+
+    close_terminal: (value: string) => {
+      const session = ctx.getSession();
+      if (!session) return;
+      const payload = parseJson<TerminalClosePayload>(value);
+      if (!payload) return;
+      session.sendTerminalAction({
+        close: { terminalId: payload.terminal_id },
+      });
     },
   };
 }
@@ -579,6 +837,11 @@ export function createGetRegistry(ctx: BridgeContext): GetRegistry {
     'option:toggle': (arg: string) => (ctx.getToggleOption(arg) ? 'true' : 'false'),
     'option:flutter:local': (arg: string) => ctx.getFlutterLocalOption(arg),
     'option:flutter:peer': (arg: string) => ctx.getFlutterPeerOption(arg),
+    'option:peer': (arg: string) => {
+      const payload = parseJson<PeerOptionGetPayload>(arg);
+      if (!payload || !payload.id || !payload.name) return '';
+      return ctx.getPeerOption(payload.id, payload.name);
+    },
     'option:user:default': (arg: string) => ctx.getUserDefaultOption(arg),
 
     // ---- favorites ----
