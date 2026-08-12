@@ -574,6 +574,19 @@ describe('dispatcher', () => {
       ctx.setPeers([{ id: '1', password: 'x' }]);
       expect(getByName('peer_has_password', '1')).toBe('true');
     });
+
+    it('translate returns empty string for empty text', () => {
+      expect(getByName('translate', JSON.stringify({ locale: 'en', text: '' }))).toBe('');
+    });
+
+    it('translate returns empty string for missing text', () => {
+      expect(getByName('translate', JSON.stringify({ locale: 'en' }))).toBe('');
+    });
+
+    it('translate returns translated text for non-empty input', () => {
+      const result = getByName('translate', JSON.stringify({ locale: 'en', text: 'ID Server' }));
+      expect(result).not.toBe('');
+    });
   });
 
   // ---- getByName: audit (3 keys) ----

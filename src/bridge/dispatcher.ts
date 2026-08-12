@@ -936,7 +936,7 @@ export function createGetRegistry(ctx: BridgeContext): GetRegistry {
     // ---- translation ----
     translate: (arg: string) => {
       const payload = parseJson<{ locale: string; text: string }>(arg);
-      if (!payload || !payload.text) return arg;
+      if (!payload || !payload.text) return '';
       return translateText(payload.locale ?? 'en', payload.text);
     },
 
