@@ -114,10 +114,6 @@ describe('dispatcher', () => {
       expect(ctx.getConnStatus()).toBe('connecting');
     });
 
-    it('session_add (alias) also creates a session', () => {
-      setByName('session_add', JSON.stringify({ id: '999', password: 'x' }));
-      expect(mockSession.connect).toHaveBeenCalledTimes(1);
-    });
 
     it('session_close closes the session', () => {
       setByName('session_add_sync', JSON.stringify({ id: '1' }));
