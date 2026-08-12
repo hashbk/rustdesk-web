@@ -20,6 +20,7 @@ import type { MessageT } from '../protos';
 import { BridgeContext } from './context';
 import { getCachedCodecAbilities } from './init';
 import { createMainHandlers, type MainHandlerRegistry } from './main-handlers';
+import { translate as translateText } from './translations';
 import type {
   SetRegistry,
   GetRegistry,
@@ -591,6 +592,13 @@ export function createGetRegistry(ctx: BridgeContext): GetRegistry {
 
     // ---- languages ----
     langs: () => JSON.stringify(['en', 'zh-cn', 'zh-tw', 'de', 'fr', 'es', 'ja', 'ko', 'ru', 'pt']),
+
+    // ---- translation ----
+    translate: (arg: string) => {
+      const payload = parseJson<{ locale: string; text: string }>(arg);
+      if (!payload || !payload.text) return arg;
+      return translateText(payload.locale ?? 'en', payload.text);
+    },
 
     // ---- peers ----
     peer_exists: (arg: string) => (ctx.peerExists(arg) ? 'true' : 'false'),
