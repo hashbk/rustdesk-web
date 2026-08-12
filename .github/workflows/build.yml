@@ -15,6 +15,12 @@ on:
       - 'docs/**'
       - '.gitignore'
       - 'LICENSE'
+  workflow_call:
+    inputs:
+      retention-days:
+        description: Artifact retention period in days
+        type: number
+        default: 7
 
 concurrency:
   group: build-${{ github.ref }}
@@ -24,9 +30,6 @@ permissions:
   contents: read
 
 jobs:
-  # ------------------------------------------------------------------
-  # Build the TS bridge layer and upload dist/bridge.js as an artifact.
-  # ------------------------------------------------------------------
   bridge:
     name: Build TS Bridge
     runs-on: ubuntu-latest
@@ -56,12 +59,8 @@ jobs:
         with:
           name: bridge-dist
           path: dist/bridge.js
-          retention-days: 7
+          retention-days: ${{ inputs.retention-days }}
 
-  # ------------------------------------------------------------------
-  # Run the bridge integration tests (jsdom) directly against TS source.
-  # No artifact dependency needed — vitest compiles on the fly.
-  # ------------------------------------------------------------------
   bridge-integration:
     name: Bridge Integration Test
     runs-on: ubuntu-latest
@@ -82,10 +81,6 @@ jobs:
       - name: Run bridge integration tests
         run: npx vitest run src/bridge/__tests__/main-handlers.test.ts --reporter=verbose
 
-  # ------------------------------------------------------------------
-  # Build the full Flutter Web app, reusing the bridge artifact from
-  # the `bridge` job to avoid a redundant build.
-  # ------------------------------------------------------------------
   flutter-web:
     name: Build Flutter Web
     needs: bridge
@@ -140,20 +135,14 @@ jobs:
         with:
           name: flutter-web-dist
           path: vendor/rustdesk/flutter/build/web/
-          retention-days: 7
+          retention-days: ${{ inputs.retention-days }}
 
-  # ------------------------------------------------------------------
-  # Smoke-test the fully built Flutter Web app by serving it over HTTP
-  # and verifying that key assets are accessible.
-  # ------------------------------------------------------------------
   e2e-smoke:
     name: E2E Smoke Test
     needs: flutter-web
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
-
       - uses: actions/download-artifact@v7
         with:
           name: flutter-web-dist
@@ -167,22 +156,18 @@ jobs:
 
           fail() { echo "::error::$1"; kill "$SERVER_PID" 2>/dev/null || true; exit 1; }
 
-          # index.html
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8099/)
           [ "$STATUS" = "200" ] || fail "index.html fetch failed: HTTP $STATUS"
           echo "index.html served with HTTP 200"
 
-          # bridge.js
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8099/js/bridge.js)
           [ "$STATUS" = "200" ] || fail "bridge.js fetch failed: HTTP $STATUS"
           echo "bridge.js served with HTTP 200"
 
-          # flutter.js
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8099/flutter.js)
           [ "$STATUS" = "200" ] || fail "flutter.js fetch failed: HTTP $STATUS"
           echo "flutter.js served with HTTP 200"
 
-          # index.html references bridge.js
           curl -s http://localhost:8099/ | grep -q "bridge.js" \
             || fail "index.html does not reference bridge.js"
           echo "index.html references bridge.js"
