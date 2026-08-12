@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '[0-9]*.[0-9]*.[0-9]*'
+      - '[0-9]*.[0-9]*.[0-9]*-*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          cache: true
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Flutter Web app
+        run: bash scripts/build-web.sh
+
+      - name: Verify build output
+        run: |
+          test -d dist/web || { echo "dist/web not found"; exit 1; }
+          test -f dist/web/index.html || { echo "index.html not found"; exit 1; }
+          test -f dist/web/js/bridge.js || { echo "bridge.js not found"; exit 1; }
+          echo "Build output verified"
+
+      - name: Create release archives
+        run: |
+          VERSION="${{ github.ref_name }}"
+          tar -czf "rustdesk-web-${VERSION}.tar.gz" -C dist/web .
+          (cd dist/web && zip -r "../../rustdesk-web-${VERSION}.zip" .)
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            rustdesk-web-${{ github.ref_name }}.tar.gz
+            rustdesk-web-${{ github.ref_name }}.zip
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
