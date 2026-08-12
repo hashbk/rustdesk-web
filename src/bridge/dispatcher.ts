@@ -19,7 +19,7 @@ import { ConnType, CodecPreference, ImageQuality, type SessionConfig } from '../
 import type { MessageT } from '../protos';
 import { BridgeContext } from './context';
 import { getCachedCodecAbilities } from './init';
-import { createMainHandlers, type MainHandlerRegistry } from './main-handlers';
+
 import { translate as translateText } from './translations';
 import type {
   SetRegistry,
@@ -155,10 +155,6 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
       handleSessionAddSync(ctx, value);
     },
 
-    session_add: (value: string) => {
-      // Alias of session_add_sync in some Flutter builds.
-      handleSessionAddSync(ctx, value);
-    },
 
     session_start: (_value: string) => {
       // Flutter sends session_start after session_add_sync; the TS session
@@ -635,8 +631,6 @@ export function createGetRegistry(ctx: BridgeContext): GetRegistry {
     // ---- image quality (read back) ----
     image_quality: () => ctx.getSessionOption('image_quality') || 'balanced',
 
-    // ---- input source ----
-    'input-source': () => ctx.getLocalOption('input-source') || 'Input source 1',
   };
 }
 
@@ -697,9 +691,6 @@ function sessionOptionToMessage(name: string, value: string): SessionOptionMessa
 /**
  * Create a bound setByName/getByName pair for the given context.
  * Unknown keys log a console warning and no-op (never throw).
- *
- * Keys prefixed with `main_` are routed to the main-handlers registry
- * (154 methods covering config, address-book, identity, codec, etc.).
  */
 export function createDispatcher(ctx: BridgeContext): {
   setByName: (name: string, value?: string) => void;
@@ -707,22 +698,9 @@ export function createDispatcher(ctx: BridgeContext): {
 } {
   const setRegistry = createSetRegistry(ctx);
   const getRegistry = createGetRegistry(ctx);
-  const mainHandlers: MainHandlerRegistry = createMainHandlers(ctx);
 
   return {
     setByName(name: string, value: string = ''): void {
-      // Route main_* keys to the main handlers.
-      if (name.startsWith('main_')) {
-        const handler = mainHandlers[name];
-        if (handler) {
-          try {
-            handler(value);
-          } catch (err) {
-            console.error(`[bridge] setByName("${name}") threw:`, err);
-          }
-          return;
-        }
-      }
       const handler = setRegistry[name];
       if (handler) {
         try {
@@ -735,18 +713,6 @@ export function createDispatcher(ctx: BridgeContext): {
       }
     },
     getByName(name: string, arg: string = ''): string {
-      // Route main_* keys to the main handlers.
-      if (name.startsWith('main_')) {
-        const handler = mainHandlers[name];
-        if (handler) {
-          try {
-            return handler(arg);
-          } catch (err) {
-            console.error(`[bridge] getByName("${name}") threw:`, err);
-            return '';
-          }
-        }
-      }
       const handler = getRegistry[name];
       if (handler) {
         try {
