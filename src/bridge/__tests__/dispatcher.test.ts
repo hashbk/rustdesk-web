@@ -34,6 +34,10 @@ const { mockSession, mockFtm } = vi.hoisted(() => {
     sendPrivacyMode: vi.fn(),
     sendBlockInput: vi.fn(),
     send2fa: vi.fn().mockResolvedValue(undefined),
+    sendFileAction: vi.fn(),
+    sendFileResponse: vi.fn(),
+    sendTerminalAction: vi.fn(),
+    sendMisc: vi.fn(),
     setInitialOptions: vi.fn(),
     getCodecAbilities: vi.fn().mockReturnValue(null),
     on: vi.fn(),
@@ -80,6 +84,10 @@ function clearMockCalls(): void {
   mockSession.sendPrivacyMode.mockClear();
   mockSession.sendBlockInput.mockClear();
   mockSession.send2fa.mockClear();
+  mockSession.sendFileAction.mockClear();
+  mockSession.sendFileResponse.mockClear();
+  mockSession.sendTerminalAction.mockClear();
+  mockSession.sendMisc.mockClear();
   mockSession.setInitialOptions.mockClear();
   mockSession.getCodecAbilities.mockClear();
   mockSession.on.mockClear();
@@ -544,6 +552,177 @@ describe('dispatcher', () => {
     it('toggle_privacy_mode calls sendPrivacyMode', () => {
       setByName('toggle_privacy_mode', JSON.stringify({ on: true }));
       expect(mockSession.sendPrivacyMode).toHaveBeenCalledWith(true);
+    });
+  });
+
+  // ---- missing handlers from Issue #131 ----
+  describe('file transfer handlers (missing)', () => {
+    beforeEach(() => {
+      setByName('session_add_sync', JSON.stringify({ id: '1' }));
+      clearMockCalls();
+    });
+
+    it('remove_file sends fileAction with removeFile', () => {
+      setByName('remove_file', JSON.stringify({ id: 1, path: '/test', file_num: 0, is_remote: true }));
+      expect(mockSession.sendFileAction).toHaveBeenCalledWith({
+        removeFile: { id: 1, path: '/test', fileNum: 0 },
+      });
+    });
+
+    it('read_dir_to_remove_recursive sends fileAction with readDir', () => {
+      setByName('read_dir_to_remove_recursive', JSON.stringify({ id: 2, path: '/dir', is_remote: true, show_hidden: true }));
+      expect(mockSession.sendFileAction).toHaveBeenCalledWith({
+        readDir: { id: 2, path: '/dir', includeHidden: true },
+      });
+    });
+
+    it('remove_all_empty_dirs sends fileAction with removeDir', () => {
+      setByName('remove_all_empty_dirs', JSON.stringify({ id: 3, path: '/dir', is_remote: true }));
+      expect(mockSession.sendFileAction).toHaveBeenCalledWith({
+        removeDir: { id: 3, path: '/dir', recursive: true },
+      });
+    });
+
+    it('create_dir sends fileAction with create', () => {
+      setByName('create_dir', JSON.stringify({ id: 4, path: '/newdir', is_remote: true }));
+      expect(mockSession.sendFileAction).toHaveBeenCalledWith({
+        create: { id: 4, path: '/newdir' },
+      });
+    });
+
+    it('rename_file sends fileAction with rename', () => {
+      setByName('rename_file', JSON.stringify({ id: 5, path: '/old', new_name: 'new', is_remote: true }));
+      expect(mockSession.sendFileAction).toHaveBeenCalledWith({
+        rename: { id: 5, path: '/old', newName: 'new' },
+      });
+    });
+  });
+
+  describe('flutter_key_event (missing)', () => {
+    beforeEach(() => {
+      setByName('session_add_sync', JSON.stringify({ id: '1' }));
+      clearMockCalls();
+    });
+
+    it('sends control key for USB HID code', () => {
+      // 0x28 = Enter → Return (27)
+      setByName('flutter_key_event', JSON.stringify({ name: '', usb_hid: 0x28, lock_modes: 0, down: 'true' }));
+      expect(mockSession.sendKey).toHaveBeenCalledWith({
+        down: true, controlKey: 27, modifiers: [],
+      });
+    });
+
+    it('sends character code for single-char name', () => {
+      setByName('flutter_key_event', JSON.stringify({ name: 'a', usb_hid: 0x04, lock_modes: 0, down: 'true' }));
+      expect(mockSession.sendKey).toHaveBeenCalledWith({
+        down: true, chr: 97, modifiers: [],
+      });
+    });
+
+    it('parses lock_modes for CapsLock modifier', () => {
+      // lock_modes bit 1 = CapsLock (3)
+      setByName('flutter_key_event', JSON.stringify({ name: 'a', usb_hid: 0x04, lock_modes: 2, down: 'true' }));
+      expect(mockSession.sendKey).toHaveBeenCalledWith({
+        down: true, chr: 97, modifiers: [3],
+      });
+    });
+  });
+
+  describe('display handlers (missing)', () => {
+    beforeEach(() => {
+      setByName('session_add_sync', JSON.stringify({ id: '1' }));
+      clearMockCalls();
+    });
+
+    it('change_resolution sends misc message', () => {
+      setByName('change_resolution', JSON.stringify({ display: 0, width: 1920, height: 1080 }));
+      expect(mockSession.sendMisc).toHaveBeenCalledTimes(1);
+      const msg = mockSession.sendMisc.mock.calls[0][0];
+      expect(msg.misc.change_display_resolution).toEqual({
+        display: 0, resolution: { width: 1920, height: 1080 },
+      });
+    });
+
+    it('toggle_virtual_display sends misc message', () => {
+      setByName('toggle_virtual_display', JSON.stringify({ index: 1, on: true }));
+      expect(mockSession.sendMisc).toHaveBeenCalledTimes(1);
+      const msg = mockSession.sendMisc.mock.calls[0][0];
+      expect(msg.misc.toggle_virtual_display).toEqual({ display: 1, on: true });
+    });
+  });
+
+  describe('option handlers (missing)', () => {
+    it('option:peer set stores peer option', () => {
+      setByName('option:peer', JSON.stringify({ id: '123', name: 'alias', value: 'my-pc' }));
+      expect(ctx.getPeerOption('123', 'alias')).toBe('my-pc');
+    });
+
+    it('option:peer get retrieves peer option', () => {
+      ctx.setPeerOption('456', 'info', 'test-info');
+      expect(getByName('option:peer', JSON.stringify({ id: '456', name: 'info' }))).toBe('test-info');
+    });
+
+    it('option:user:default set stores user default option', () => {
+      setByName('option:user:default', JSON.stringify({ name: 'theme', value: 'dark' }));
+      expect(ctx.getUserDefaultOption('theme')).toBe('dark');
+    });
+
+    it('common set stores common option', () => {
+      setByName('common', JSON.stringify({ name: 'key', value: 'val' }));
+      expect(ctx.getCommon('key')).toBe('val');
+    });
+  });
+
+  describe('terminal handlers (missing)', () => {
+    beforeEach(() => {
+      setByName('session_add_sync', JSON.stringify({ id: '1' }));
+      clearMockCalls();
+    });
+
+    it('open_terminal sends terminalAction with open', () => {
+      setByName('open_terminal', JSON.stringify({ terminal_id: 0, rows: 24, cols: 80 }));
+      expect(mockSession.sendTerminalAction).toHaveBeenCalledWith({
+        open: { terminalId: 0, rows: 24, cols: 80 },
+      });
+    });
+
+    it('send_terminal_input sends terminalAction with data', () => {
+      setByName('send_terminal_input', JSON.stringify({ terminal_id: 0, data: 'ls -la' }));
+      expect(mockSession.sendTerminalAction).toHaveBeenCalledTimes(1);
+      const action = mockSession.sendTerminalAction.mock.calls[0][0];
+      expect(action.data.terminalId).toBe(0);
+      expect(new TextDecoder().decode(action.data.data)).toBe('ls -la');
+    });
+
+    it('resize_terminal sends terminalAction with resize', () => {
+      setByName('resize_terminal', JSON.stringify({ terminal_id: 0, rows: 30, cols: 100 }));
+      expect(mockSession.sendTerminalAction).toHaveBeenCalledWith({
+        resize: { terminalId: 0, rows: 30, cols: 100 },
+      });
+    });
+
+    it('close_terminal sends terminalAction with close', () => {
+      setByName('close_terminal', JSON.stringify({ terminal_id: 0 }));
+      expect(mockSession.sendTerminalAction).toHaveBeenCalledWith({
+        close: { terminalId: 0 },
+      });
+    });
+  });
+
+  describe('account_auth (missing)', () => {
+    it('account_auth calls onAccountAuth callback', () => {
+      const spy = vi.fn();
+      (window as unknown as { onAccountAuth: (op: string, remember: boolean) => void }).onAccountAuth = spy;
+      setByName('account_auth', JSON.stringify({ op: 'login', remember: true }));
+      expect(spy).toHaveBeenCalledWith('login', true);
+      expect(ctx.getRemember()).toBe(true);
+    });
+
+    it('account_auth_cancel calls onAccountAuthCancel callback', () => {
+      const spy = vi.fn();
+      (window as unknown as { onAccountAuthCancel: () => void }).onAccountAuthCancel = spy;
+      setByName('account_auth_cancel');
+      expect(spy).toHaveBeenCalledTimes(1);
     });
   });
 });

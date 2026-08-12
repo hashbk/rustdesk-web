@@ -202,6 +202,12 @@ export type MessageT = {
     receive?: { id?: number; path?: string; files?: unknown[]; fileNum?: number; totalSize?: number };
     cancel?: { id?: number };
     sendConfirm?: { id?: number; fileNum?: number; skip?: boolean; offsetBlk?: number };
+    create?: { id?: number; path?: string };
+    removeDir?: { id?: number; path?: string; recursive?: boolean };
+    removeFile?: { id?: number; path?: string; fileNum?: number };
+    rename?: { id?: number; path?: string; newName?: string };
+    allFiles?: { id?: number; path?: string; includeHidden?: boolean };
+    readEmptyDirs?: { path?: string; includeHidden?: boolean };
   };
   fileResponse?: {
     dir?: { id?: number; path?: string; entries?: FileEntryT[] };
