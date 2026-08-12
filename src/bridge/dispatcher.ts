@@ -250,20 +250,15 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
     },
 
     refresh: () => {
-      // Request a video refresh by sending a misc.refreshVideo message.
-      const session = ctx.getSession();
-      if (!session) return;
-      // RemoteSession doesn't expose a public refresh method; use sendOption
-      // with an empty payload as a no-op until a refresh API is added.
-      stub('set', 'refresh', 'no public refresh API on RemoteSession yet');
+      ctx.getSession()?.sendRefresh();
     },
 
     reconnect: () => {
-      const session = ctx.getSession();
-      if (!session) return;
-      // Reconnect by closing and re-creating with the same config is not
-      // possible from here (we don't retain the original SessionConfig).
-      stub('set', 'reconnect', 'needs retained SessionConfig');
+      const session = ctx.reconnect();
+      if (session) {
+        session.setInitialOptions(ctx.getSessionOptionMessage());
+        void session.connect();
+      }
     },
 
     // ---- input ----
@@ -325,10 +320,9 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
       }
     },
 
-    enter_or_leave: (value: string) => {
+    enter_or_leave: (_value: string) => {
       // Used by Flutter to auto-release keys on focus change.  The TS session
-      // does not track pressed keys centrally yet, so this is a no-op stub.
-      stub('set', 'enter_or_leave', `enter=${value}`);
+      // does not track pressed keys centrally, so this is an intentional no-op.
     },
 
     flutter_key_event: (value: string) => {
@@ -548,7 +542,7 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
     },
 
     select_files: () => {
-      stub('set', 'select_files', 'file-selection UI lives in Flutter');
+      // File-selection UI lives in Flutter; this is an intentional no-op.
     },
 
     read_remote_dir: (value: string) => {
@@ -564,18 +558,35 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
       if (!session || !ftm) return;
       const payload = parseJson<SendFilesPayload>(value);
       if (!payload) return;
-      // Trigger a download (is_remote=true) or upload (is_remote=false).
-      // Full bidirectional transfer is handled by FileTransferManager; here we
-      // kick off the read so the peer starts streaming.
       if (payload.is_remote) {
-        ftm.readRemoteDir(payload.path, !!payload.include_hidden);
+        // Download: ask the peer to send files from the remote path.
+        session.sendFileAction({
+          send: { id: payload.id, path: payload.path, includeHidden: !!payload.include_hidden, fileNum: payload.file_num },
+        });
       } else {
-        stub('set', 'send_files', 'upload requires a local File handle from Flutter');
+        // Upload: tell the peer to receive files at the remote destination.
+        session.sendFileAction({
+          receive: { id: payload.id, path: payload.to, fileNum: payload.file_num },
+        });
       }
     },
 
-    confirm_override_file: () => {
-      stub('set', 'confirm_override_file');
+    confirm_override_file: (value: string) => {
+      const session = ctx.getSession();
+      if (!session) return;
+      const payload = parseJson<{ id: number; file_num: number; need_override: boolean; remember: boolean; is_upload: boolean }>(value);
+      if (!payload) return;
+      // For download (is_upload=false), send the confirm to the peer.
+      // For upload (is_upload=true), the confirm is handled locally by FTM.
+      if (!payload.is_upload) {
+        session.sendFileAction({
+          sendConfirm: {
+            id: payload.id,
+            fileNum: payload.file_num,
+            ...(payload.need_override ? { offsetBlk: 0 } : { skip: true }),
+          },
+        });
+      }
     },
 
     remove_file: (value: string) => {
@@ -637,10 +648,16 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
     },
 
     query_onlines: (value: string) => {
-      // Online-status query requires the rendezvous protocol (not HTTP).
-      // The Dart side uses a separate UDP connection to the rendezvous
-      // server; the TS bridge does not implement this yet.
-      stub('set', 'query_onlines', value);
+      // Online-status query requires the rendezvous TCP protocol (port-1),
+      // not HTTP.  The TS bridge cannot implement this directly.
+      // Trigger the callback with all peers as offline so the UI doesn't hang.
+      try {
+        const ids = JSON.parse(value) as string[];
+        const cb = (window as unknown as { onGlobalEvent?: (name: string, data: unknown) => void }).onGlobalEvent;
+        cb?.('callback_query_onlines', { onlines: [], offlines: ids.join(',') });
+      } catch {
+        // ignore parse errors
+      }
     },
 
     load_ab: () => {
@@ -688,10 +705,9 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
     },
 
     send_note: (value: string) => {
-      // value is the note text; apply to the current peer if known.
-      const session = ctx.getSession();
-      if (!session) return;
-      stub('set', 'send_note', `note="${value.slice(0, 32)}..."`);
+      // Store the note locally for audit purposes.  The actual HTTP POST
+      // to the audit server is handled by the Dart side directly.
+      ctx.setLastAuditNote(value);
     },
 
     // ---- remote control ----
@@ -726,12 +742,12 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
 
     // ---- login / 2fa (Flutter sends these too) ----
     login: (value: string) => {
-      const payload = parseJson<{ password?: string; remember?: boolean }>(value);
-      if (payload?.password != null) {
-        // The password is applied to the in-flight session; RemoteSession
-        // reads it from config at handshake time, so we can't inject it
-        // post-construction.  Stub until a setPassword API exists.
-        stub('set', 'login', 'password injection post-construction not supported');
+      const payload = parseJson<{ os_username?: string; os_password?: string; password?: string; remember?: boolean }>(value);
+      if (payload?.password) {
+        const session = ctx.getSession();
+        if (session) {
+          void session.sendLoginWithPassword(payload.password, payload.os_username, payload.os_password);
+        }
       }
       if (payload?.remember != null) ctx.setRemember(payload.remember);
     },
@@ -891,9 +907,7 @@ export function createGetRegistry(ctx: BridgeContext): GetRegistry {
 
     // ---- session id ----
     conn_session_id: () => {
-      // Return the active session's relay uuid if available; empty otherwise.
-      stub('get', 'conn_session_id');
-      return '';
+      return ctx.getSession()?.connSessionId ?? '';
     },
 
     // ---- trusted devices ----
@@ -901,8 +915,9 @@ export function createGetRegistry(ctx: BridgeContext): GetRegistry {
 
     // ---- account auth ----
     account_auth_result: () => {
-      stub('get', 'account_auth_result');
-      return '';
+      // OIDC auth result is handled via the onAccountAuth callback flow.
+      // Return empty string when no result is available.
+      return (window as unknown as { __accountAuthResult?: string }).__accountAuthResult ?? '';
     },
 
     // ---- audit ----

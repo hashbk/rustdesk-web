@@ -38,6 +38,9 @@ const { mockSession, mockFtm } = vi.hoisted(() => {
     sendFileResponse: vi.fn(),
     sendTerminalAction: vi.fn(),
     sendMisc: vi.fn(),
+    sendRefresh: vi.fn(),
+    sendLoginWithPassword: vi.fn().mockResolvedValue(undefined),
+    connSessionId: 'test-session-id',
     setInitialOptions: vi.fn(),
     getCodecAbilities: vi.fn().mockReturnValue(null),
     on: vi.fn(),
@@ -88,6 +91,8 @@ function clearMockCalls(): void {
   mockSession.sendFileResponse.mockClear();
   mockSession.sendTerminalAction.mockClear();
   mockSession.sendMisc.mockClear();
+  mockSession.sendRefresh.mockClear();
+  mockSession.sendLoginWithPassword.mockClear();
   mockSession.setInitialOptions.mockClear();
   mockSession.getCodecAbilities.mockClear();
   mockSession.on.mockClear();
@@ -723,6 +728,121 @@ describe('dispatcher', () => {
       (window as unknown as { onAccountAuthCancel: () => void }).onAccountAuthCancel = spy;
       setByName('account_auth_cancel');
       expect(spy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ---- stub handlers from Issue #131 ----
+  describe('refresh (stub fixed)', () => {
+    beforeEach(() => {
+      setByName('session_add_sync', JSON.stringify({ id: '1' }));
+      clearMockCalls();
+    });
+
+    it('refresh calls sendRefresh', () => {
+      setByName('refresh');
+      expect(mockSession.sendRefresh).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('reconnect@connect (stub fixed)', () => {
+    it('reconnect re-creates session and calls connect', () => {
+      setByName('session_add_sync', JSON.stringify({ id: '1' }));
+      clearMockCalls();
+      setByName('reconnect');
+      expect(mockSession.connect).toHaveBeenCalledTimes(1);
+      expect(ctx.getConnStatus()).toBe('connecting');
+    });
+  });
+
+  describe('send_files (stub fixed)', () => {
+    beforeEach(() => {
+      setByName('session_add_sync', JSON.stringify({ id: '1' }));
+      clearMockCalls();
+    });
+
+    it('download (is_remote=true) sends FileAction.send', () => {
+      setByName('send_files', JSON.stringify({ id: 1, path: '/remote', to: '/local', file_num: 0, is_remote: true }));
+      expect(mockSession.sendFileAction).toHaveBeenCalledWith({
+        send: { id: 1, path: '/remote', includeHidden: false, fileNum: 0 },
+      });
+    });
+
+    it('upload (is_remote=false) sends FileAction.receive', () => {
+      setByName('send_files', JSON.stringify({ id: 2, path: '/local', to: '/remote', file_num: 0, is_remote: false }));
+      expect(mockSession.sendFileAction).toHaveBeenCalledWith({
+        receive: { id: 2, path: '/remote', fileNum: 0 },
+      });
+    });
+  });
+
+  describe('confirm_override_file (stub fixed)', () => {
+    beforeEach(() => {
+      setByName('session_add_sync', JSON.stringify({ id: '1' }));
+      clearMockCalls();
+    });
+
+    it('need_override=true sends sendConfirm with offsetBlk=0', () => {
+      setByName('confirm_override_file', JSON.stringify({ id: 1, file_num: 0, need_override: true, remember: false, is_upload: false }));
+      expect(mockSession.sendFileAction).toHaveBeenCalledWith({
+        sendConfirm: { id: 1, fileNum: 0, offsetBlk: 0 },
+      });
+    });
+
+    it('need_override=false sends sendConfirm with skip=true', () => {
+      setByName('confirm_override_file', JSON.stringify({ id: 2, file_num: 1, need_override: false, remember: false, is_upload: false }));
+      expect(mockSession.sendFileAction).toHaveBeenCalledWith({
+        sendConfirm: { id: 2, fileNum: 1, skip: true },
+      });
+    });
+
+    it('is_upload=true does not send to peer', () => {
+      setByName('confirm_override_file', JSON.stringify({ id: 3, file_num: 0, need_override: true, remember: false, is_upload: true }));
+      expect(mockSession.sendFileAction).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('send_note (stub fixed)', () => {
+    it('send_note stores last audit note', () => {
+      setByName('send_note', 'my audit note');
+      expect(ctx.getLastAuditNote()).toBe('my audit note');
+    });
+  });
+
+  describe('login (stub fixed)', () => {
+    beforeEach(() => {
+      setByName('session_add_sync', JSON.stringify({ id: '1' }));
+      clearMockCalls();
+    });
+
+    it('login with password calls sendLoginWithPassword', () => {
+      setByName('login', JSON.stringify({ password: 'secret', remember: true }));
+      expect(mockSession.sendLoginWithPassword).toHaveBeenCalledWith('secret', undefined, undefined);
+      expect(ctx.getRemember()).toBe(true);
+    });
+
+    it('login with os credentials passes them through', () => {
+      setByName('login', JSON.stringify({ os_username: 'admin', os_password: 'pw', password: 'secret' }));
+      expect(mockSession.sendLoginWithPassword).toHaveBeenCalledWith('secret', 'admin', 'pw');
+    });
+  });
+
+  describe('conn_session_id (stub fixed)', () => {
+    it('returns session connSessionId when session exists', () => {
+      setByName('session_add_sync', JSON.stringify({ id: '1' }));
+      expect(getByName('conn_session_id')).toBe('test-session-id');
+    });
+
+    it('returns empty string when no session', () => {
+      expect(getByName('conn_session_id')).toBe('');
+    });
+  });
+
+  describe('query_onlines (stub improved)', () => {
+    it('triggers callback_query_onlines with all offline', () => {
+      const spy = vi.fn();
+      (window as unknown as { onGlobalEvent: (name: string, data: unknown) => void }).onGlobalEvent = spy;
+      setByName('query_onlines', JSON.stringify(['id1', 'id2']));
+      expect(spy).toHaveBeenCalledWith('callback_query_onlines', { onlines: [], offlines: 'id1,id2' });
     });
   });
 });
