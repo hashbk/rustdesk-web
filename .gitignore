@@ -13,3 +13,4 @@ coverage/
 .cache/
 .parcel-cache/
 .vite/
+src/bridge/generated/

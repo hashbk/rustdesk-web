@@ -558,10 +558,15 @@ describe('dispatcher', () => {
       expect(parsed).toHaveProperty('h264');
     });
 
-    it('langs returns a JSON array', () => {
+    it('langs returns a JSON array of [code, name] pairs', () => {
       const parsed = JSON.parse(getByName('langs'));
       expect(Array.isArray(parsed)).toBe(true);
-      expect(parsed).toContain('en');
+      expect(parsed.length).toBeGreaterThan(10);
+      expect(parsed[0]).toEqual(['en', 'English']);
+      const codes = parsed.map((p: [string, string]) => p[0]);
+      expect(codes).toContain('zh-cn');
+      expect(codes).toContain('ja');
+      expect(codes).toContain('ko');
     });
 
     it('peer_exists returns "true" or "false"', () => {
@@ -585,7 +590,27 @@ describe('dispatcher', () => {
 
     it('translate returns translated text for non-empty input', () => {
       const result = getByName('translate', JSON.stringify({ locale: 'en', text: 'ID Server' }));
-      expect(result).not.toBe('');
+      expect(result).toBe('ID server');
+    });
+
+    it('translate falls back to English for unknown locale', () => {
+      const result = getByName('translate', JSON.stringify({ locale: 'xx-XX', text: 'ID Server' }));
+      expect(result).toBe('ID server');
+    });
+
+    it('translate resolves zh-CN locale to zh-cn', () => {
+      const result = getByName('translate', JSON.stringify({ locale: 'zh-CN', text: 'ID Server' }));
+      expect(result).toBe('ID 服务器');
+    });
+
+    it('translate resolves zh-TW locale to zh-tw', () => {
+      const result = getByName('translate', JSON.stringify({ locale: 'zh-TW', text: 'ID Server' }));
+      expect(result).toBe('ID 伺服器');
+    });
+
+    it('translate substitutes placeholders', () => {
+      const result = getByName('translate', JSON.stringify({ locale: 'en', text: 'new-version-of-{}-tip' }));
+      expect(result).not.toContain('{}');
     });
   });
 

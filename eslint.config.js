@@ -85,6 +85,23 @@ export default [
     },
   },
   {
-    ignores: ['dist/**', 'node_modules/**', 'src/protos/*.proto'],
+    files: ['**/*.mjs'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: {
+        URL: 'readonly',
+        console: 'readonly',
+        process: 'readonly',
+        __dirname: 'readonly',
+        require: 'readonly',
+        module: 'readonly',
+        exports: 'readonly',
+        Buffer: 'readonly',
+      },
+    },
+  },
+  {
+    ignores: ['dist/**', 'node_modules/**', 'src/protos/*.proto', 'src/bridge/generated/**'],
   },
 ];
