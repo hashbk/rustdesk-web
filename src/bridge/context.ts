@@ -133,6 +133,7 @@ export class BridgeContext {
   private appName = APP_NAME;
   private sessionOptions: SessionOptionMessage = {};
   private sessionListeners: Partial<SessionEvents> = {};
+  private retainedConfig: ConstructorParameters<typeof RemoteSession>[0] | null = null;
 
   // ---- session lifecycle ----
 
@@ -165,6 +166,7 @@ export class BridgeContext {
         /* ignore */
       }
     }
+    this.retainedConfig = config;
     const session = new RemoteSession(config);
     this.session = session;
 
@@ -195,7 +197,13 @@ export class BridgeContext {
     }
     this.session = null;
     this.ftm = null;
+    this.retainedConfig = null;
     this.setConnStatus('disconnected');
+  }
+
+  reconnect(): RemoteSession | null {
+    if (!this.retainedConfig) return null;
+    return this.createSession(this.retainedConfig);
   }
 
   /** Register a listener that will be attached to every new session. */

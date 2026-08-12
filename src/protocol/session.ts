@@ -143,6 +143,7 @@ class MessageQueue {
 
 export class RemoteSession {
   state: SessionState = 'idle';
+  connSessionId = '';
   private listeners: { [K in keyof SessionEvents]?: Listener<K> } = {};
   private rendezvousStream: WsStream | null = null;
   private relayStream: WsStream | null = null;
@@ -156,6 +157,7 @@ export class RemoteSession {
   constructor(config: SessionConfig) {
     this.config = config;
     this.myId = config.myId ?? generateWebId();
+    this.connSessionId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   }
 
   on<K extends keyof SessionEvents>(event: K, listener: Listener<K>): void {
@@ -508,6 +510,40 @@ export class RemoteSession {
   sendMisc(msg: MessageT): void {
     if (this.state !== 'connected') return;
     this.relayStream?.send(encodeMessage(msg));
+  }
+
+  sendRefresh(): void {
+    if (this.state !== 'connected') return;
+    const msg: MessageT = { misc: { refresh_video: true } };
+    this.relayStream?.send(encodeMessage(msg));
+  }
+
+  async sendLoginWithPassword(password: string, _osUsername?: string, _osPassword?: string): Promise<void> {
+    if (this.state !== 'connected' && this.state !== 'logging-in') return;
+    // Request a fresh hash from the peer, then send login with the new password.
+    const msg = await this.nextMessage(15000);
+    if (!msg.hash) {
+      if (msg.loginResponse?.error) throw new Error(`login error: ${msg.loginResponse.error}`);
+      throw new Error('expected hash before login');
+    }
+    const passwordHash = await computePasswordHash(password, msg.hash.salt, msg.hash.challenge);
+    const loginMsg: MessageT = {
+      loginRequest: {
+        username: this.config.peerId,
+        password: passwordHash,
+        myId: this.myId,
+        myName: this.config.myName ?? 'RustDesk Web',
+        videoAckRequired: false,
+        version: CLIENT_VERSION,
+        myPlatform: 'Web',
+        option: {
+          imageQuality: this.config.imageQuality ?? ImageQuality.Balanced,
+          ...this.initialOptions,
+        },
+      },
+    };
+    this.relayStream!.send(encodeMessage(loginMsg));
+    this.log('login with password sent');
   }
 
   sendSwitchDisplay(display: number): void {
