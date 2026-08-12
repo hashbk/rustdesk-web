@@ -11,6 +11,7 @@
 import { RemoteSession, type SessionEvents, type SessionOptionMessage } from '../protocol/session';
 import { FileTransferManager } from '../protocol/file_transfer';
 import { attachSessionCallbacks } from './callbacks';
+import { HbbsClient } from './hbbs';
 
 import type { ConnStatus, ServerConfigLike } from './types';
 
@@ -94,7 +95,8 @@ function lsRemove(key: string): void {
   }
 }
 
-/** Peer record stored in localStorage (address-book entry). */
+/** Peer record stored in localStorage (address-book entry).
+ *  Matches Dart `Peer.fromJson` in flutter/lib/models/peer_model.dart. */
 export interface PeerRecord {
   id: string;
   name?: string;
@@ -103,6 +105,16 @@ export interface PeerRecord {
   hash?: string;
   note?: string;
   avatar?: string;
+  username?: string;
+  hostname?: string;
+  platform?: string;
+  tags?: string[];
+  forceAlwaysRelay?: string;
+  rdpPort?: string;
+  rdpUsername?: string;
+  loginName?: string;
+  device_group_name?: string;
+  same_server?: boolean;
 }
 
 /**
@@ -743,6 +755,22 @@ export class BridgeContext {
 
   getHomeDir(): string {
     return '';
+  }
+
+  // ---- access token (for HBBS API auth) ----
+
+  getAccessToken(): string {
+    return this.getLocalOption('access_token');
+  }
+
+  setAccessToken(token: string): void {
+    this.setLocalOption('access_token', token);
+  }
+
+  // ---- HBBS API client ----
+
+  getHbbsClient(): HbbsClient {
+    return new HbbsClient(this.getServer(), () => this.getAccessToken());
   }
 
   /** Reset all in-memory state (tests use this). */
