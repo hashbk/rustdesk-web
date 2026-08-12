@@ -285,6 +285,36 @@ describe('events', () => {
       });
     });
 
+    it('emits msgbox with type=input-password for password prompt', () => {
+      listeners.get('messageBox')!({
+        msgType: 'input-password',
+        title: 'Password Required',
+        text: '',
+        link: '',
+      });
+      expect(events[0]).toMatchObject({
+        name: 'msgbox',
+        type: 'input-password',
+        title: 'Password Required',
+        text: '',
+      });
+    });
+
+    it('emits msgbox with type=re-input-password for wrong password', () => {
+      listeners.get('messageBox')!({
+        msgType: 're-input-password',
+        title: 'Wrong Password',
+        text: 'Do you want to enter again?',
+        link: '',
+      });
+      expect(events[0]).toMatchObject({
+        name: 'msgbox',
+        type: 're-input-password',
+        title: 'Wrong Password',
+        text: 'Do you want to enter again?',
+      });
+    });
+
     // -- switch_display --
     it('emits switch_display with display, x, y, width, height, cursor_embedded', () => {
       listeners.get('switchDisplay')!({

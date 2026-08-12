@@ -153,6 +153,7 @@ export class RemoteSession {
   private closed = false;
   private codecAbilities: { vp8: boolean; vp9: boolean; av1: boolean; h264: boolean; h265: boolean } | null = null;
   private initialOptions: SessionOptionMessage = {};
+  private pendingHash: HashT | null = null;
 
   constructor(config: SessionConfig) {
     this.config = config;
@@ -295,7 +296,9 @@ export class RemoteSession {
     this.log('relay request sent');
 
     await this.handshakeAndLogin(info.signedPk);
-    this.runSteadyState();
+    if (this.state === 'connected') {
+      this.runSteadyState();
+    }
   }
 
   private async nextMessage(timeoutMs?: number): Promise<MessageT> {
@@ -367,7 +370,13 @@ export class RemoteSession {
 
   private async sendLogin(hash: HashT): Promise<void> {
     if (!this.config.password) {
-      this.emit('error', new Error('password required but not provided'));
+      this.pendingHash = hash;
+      this.emit('messageBox', {
+        msgType: 'input-password',
+        title: 'Password Required',
+        text: '',
+        link: '',
+      });
       return;
     }
     const passwordHash = await computePasswordHash(this.config.password, hash.salt, hash.challenge);
@@ -520,13 +529,16 @@ export class RemoteSession {
 
   async sendLoginWithPassword(password: string, _osUsername?: string, _osPassword?: string): Promise<void> {
     if (this.state !== 'connected' && this.state !== 'logging-in') return;
-    // Request a fresh hash from the peer, then send login with the new password.
-    const msg = await this.nextMessage(15000);
-    if (!msg.hash) {
-      if (msg.loginResponse?.error) throw new Error(`login error: ${msg.loginResponse.error}`);
-      throw new Error('expected hash before login');
+    const hash = this.pendingHash;
+    if (!hash) {
+      this.emit('error', new Error('no pending hash for password login'));
+      return;
     }
-    const passwordHash = await computePasswordHash(password, msg.hash.salt, msg.hash.challenge);
+    this.pendingHash = null;
+    const passwordHash = await computePasswordHash(password, hash.salt, hash.challenge);
+    const abilities = await detectCodecAbilities();
+    this.codecAbilities = abilities;
+    const prefer = this.config.codecPreference ?? CodecPreference.Auto;
     const loginMsg: MessageT = {
       loginRequest: {
         username: this.config.peerId,
@@ -538,13 +550,52 @@ export class RemoteSession {
         myPlatform: 'Web',
         option: {
           imageQuality: this.config.imageQuality ?? ImageQuality.Balanced,
+          supportedDecoding: {
+            abilityVp9: abilities.vp9 ? 1 : 0,
+            abilityH264: abilities.h264 ? 1 : 0,
+            abilityH265: abilities.h265 ? 1 : 0,
+            abilityVp8: abilities.vp8 ? 1 : 0,
+            abilityAv1: 0,
+            prefer,
+          },
           ...this.initialOptions,
         },
       },
     };
     this.relayStream!.send(encodeMessage(loginMsg));
     this.log('login with password sent');
+
+    try {
+      const resp = await this.nextMessage(15000);
+      if (!resp.loginResponse) throw new Error('expected login response');
+      if (resp.loginResponse.error) {
+        if (resp.loginResponse.error === 'REQUIRE_2FA') {
+          this.setState('need-2fa');
+          this.emit('need2fa');
+          return;
+        }
+        this.pendingHash = hash;
+        this.emit('messageBox', {
+          msgType: 're-input-password',
+          title: resp.loginResponse.error,
+          text: 'Do you want to enter again?',
+          link: '',
+        });
+        return;
+      }
+      if (resp.loginResponse.peerInfo) {
+        this.emit('peerInfo', resp.loginResponse.peerInfo);
+        this.setState('connected');
+        this.log('connected');
+        this.runSteadyState();
+      } else {
+        throw new Error('login response without peer info');
+      }
+    } catch (err) {
+      this.handleError(err);
+    }
   }
+
 
   sendSwitchDisplay(display: number): void {
     if (this.state !== 'connected') return;
