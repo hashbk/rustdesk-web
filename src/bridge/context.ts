@@ -11,7 +11,7 @@
 import { RemoteSession, type SessionEvents, type SessionOptionMessage } from '../protocol/session';
 import { FileTransferManager } from '../protocol/file_transfer';
 import { attachSessionCallbacks } from './callbacks';
-import { HbbsClient } from './hbbs';
+
 
 import type { ConnStatus, ServerConfigLike } from './types';
 
@@ -757,7 +757,7 @@ export class BridgeContext {
     return '';
   }
 
-  // ---- access token (for HBBS API auth) ----
+  // ---- access token (for HBBS API auth, used by Dart side via getLocalOption) ----
 
   getAccessToken(): string {
     return this.getLocalOption('access_token');
@@ -765,12 +765,6 @@ export class BridgeContext {
 
   setAccessToken(token: string): void {
     this.setLocalOption('access_token', token);
-  }
-
-  // ---- HBBS API client ----
-
-  getHbbsClient(): HbbsClient {
-    return new HbbsClient(this.getServer(), () => this.getAccessToken());
   }
 
   /** Reset all in-memory state (tests use this). */

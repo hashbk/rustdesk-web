@@ -294,7 +294,7 @@ describe('dispatcher', () => {
 
   // ---- peers (1 key) ----
   describe('peers', () => {
-    it('remove_peer removes a peer', () => {
+    it('remove_peer removes a peer from local cache', () => {
       ctx.setPeers([{ id: '123' }, { id: '456' }]);
       setByName('remove_peer', '123');
       expect(ctx.peerExists('123')).toBe(false);
@@ -317,6 +317,43 @@ describe('dispatcher', () => {
       setByName('clear_group');
       expect(ctx.getGroup()).toBe('');
     });
+
+    it('load_ab calls onLoadAbFinished with cached data', () => {
+      const cached = JSON.stringify({ access_token: 'tok', ab_entries: [] });
+      ctx.setAddressBook(cached);
+      const spy = vi.fn();
+      (window as unknown as { onLoadAbFinished: (s: string) => void }).onLoadAbFinished = spy;
+      setByName('load_ab');
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenCalledWith(cached);
+    });
+
+    it('load_ab calls onLoadAbFinished with empty string when no cache', () => {
+      const spy = vi.fn();
+      (window as unknown as { onLoadAbFinished: (s: string) => void }).onLoadAbFinished = spy;
+      setByName('load_ab');
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenCalledWith('');
+    });
+
+    it('load_group calls onLoadGroupFinished with cached data', () => {
+      const cached = JSON.stringify({ access_token: 'tok', device_groups: [] });
+      ctx.setGroup(cached);
+      const spy = vi.fn();
+      (window as unknown as { onLoadGroupFinished: (s: string) => void }).onLoadGroupFinished = spy;
+      setByName('load_group');
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenCalledWith(cached);
+    });
+
+    it('load_group calls onLoadGroupFinished with empty string when no cache', () => {
+      const spy = vi.fn();
+      (window as unknown as { onLoadGroupFinished: (s: string) => void }).onLoadGroupFinished = spy;
+      setByName('load_group');
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenCalledWith('');
+    });
+
   });
 
   // ---- audit (1 key) ----

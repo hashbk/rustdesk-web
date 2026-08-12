@@ -428,17 +428,10 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
 
     // ---- peers / address book ----
     remove_peer: (value: string) => {
+      // Remove from local recent-peers cache only.  Address-book peer
+      // deletion is handled by the Dart side (AbModel.deletePeers) which
+      // calls the HBBS API directly via the http package.
       ctx.removePeer(value);
-      // Also delete from server if we have a personal AB guid.
-      void (async () => {
-        try {
-          const client = ctx.getHbbsClient();
-          const guid = await client.getPersonalAbGuid();
-          if (guid) await client.deletePeers(guid, [value]);
-        } catch (err) {
-          console.warn('[bridge] remove_peer server delete failed:', err);
-        }
-      })();
     },
 
     query_onlines: (value: string) => {
@@ -449,42 +442,23 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
     },
 
     load_ab: () => {
-      // 1. Fast path: return cached data from localStorage immediately so
-      //    Flutter's 2s Completer doesn't time out.
+      // Return cached address book from localStorage.  The Dart side
+      // (AbModel.loadCache) calls this on startup and expects the cache
+      // JSON via onLoadAbFinished.  Server sync is handled by the Dart
+      // side directly via the http package (AbModel.pullAb).
       const cached = ctx.getAddressBook();
       const cb = (window as unknown as { onLoadAbFinished?: (s: string) => void }).onLoadAbFinished;
       const cachedStr = typeof cached === 'string' ? cached : JSON.stringify(cached);
       cb?.(cachedStr);
-
-      // 2. Async server sync: pull latest from HBBS, update cache, and
-      //    notify Flutter again with fresh data.
-      void (async () => {
-        try {
-          const client = ctx.getHbbsClient();
-          const serverData = await client.loadAb();
-          if (serverData) {
-            ctx.setAddressBook(serverData);
-            cb?.(serverData);
-          }
-        } catch (err) {
-          console.warn('[bridge] load_ab server sync failed:', err);
-        }
-      })();
     },
 
     save_ab: (value: string) => {
+      // Save address book cache to localStorage.  The Dart side
+      // (AbModel._saveCache) calls this with a JSON blob containing
+      // {access_token, ab_entries}.  Server writes are handled by the
+      // Dart side directly via the http package.
       const data = parseJson(value);
       ctx.setAddressBook(data ?? value);
-
-      // Async push to server (legacy mode).
-      void (async () => {
-        try {
-          const client = ctx.getHbbsClient();
-          await client.setLegacyAb(value);
-        } catch (err) {
-          console.warn('[bridge] save_ab server push failed:', err);
-        }
-      })();
     },
 
     clear_ab: () => {
@@ -492,25 +466,14 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
     },
 
     load_group: () => {
-      // 1. Fast path: return cached data from localStorage.
+      // Return cached group data from localStorage.  The Dart side
+      // (GroupModel.loadCache) calls this on startup and expects the
+      // cache JSON via onLoadGroupFinished.  Server sync is handled by
+      // the Dart side directly via the http package.
       const cached = ctx.getGroup();
       const cb = (window as unknown as { onLoadGroupFinished?: (s: string) => void }).onLoadGroupFinished;
       const cachedStr = typeof cached === 'string' ? cached : JSON.stringify(cached);
       cb?.(cachedStr);
-
-      // 2. Async server sync.
-      void (async () => {
-        try {
-          const client = ctx.getHbbsClient();
-          const serverData = await client.loadGroup();
-          if (serverData) {
-            ctx.setGroup(serverData);
-            cb?.(serverData);
-          }
-        } catch (err) {
-          console.warn('[bridge] load_group server sync failed:', err);
-        }
-      })();
     },
 
     save_group: (value: string) => {
