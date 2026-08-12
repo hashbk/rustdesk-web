@@ -297,6 +297,59 @@ describe('dispatcher', () => {
       setByName('option:toggle', 'show-remote-cursor');
       expect(ctx.getToggleOption('show-remote-cursor')).toBe(false);
     });
+
+    it('option syncs custom-rendezvous-server to ctx.server', () => {
+      setByName('option', JSON.stringify({ name: 'custom-rendezvous-server', value: 'my-server.example.com' }));
+      expect(ctx.getServer().rendezvousHost).toBe('my-server.example.com');
+      expect(getByName('is_using_public_server')).toBe('false');
+    });
+
+    it('option syncs relay-server to ctx.server', () => {
+      setByName('option', JSON.stringify({ name: 'relay-server', value: 'relay.example.com' }));
+      expect(ctx.getServer().relayHost).toBe('relay.example.com');
+    });
+
+    it('option syncs api-server to ctx.server and api_server getter returns it', () => {
+      setByName('option', JSON.stringify({ name: 'api-server', value: 'https://api.example.com' }));
+      expect(ctx.getServer().apiHost).toBe('https://api.example.com');
+      expect(getByName('api_server')).toBe('https://api.example.com');
+    });
+
+    it('option syncs key to ctx.server', () => {
+      setByName('option', JSON.stringify({ name: 'key', value: 'my-key-base64=' }));
+      expect(ctx.getServer().key).toBe('my-key-base64=');
+    });
+
+    it('option api-server with http:// sets useWss to false', () => {
+      setByName('option', JSON.stringify({ name: 'api-server', value: 'http://api.example.com' }));
+      expect(ctx.getServer().useWss).toBe(false);
+    });
+
+    it('option api-server with https:// sets useWss to true', () => {
+      setByName('option', JSON.stringify({ name: 'api-server', value: 'http://api.example.com' }));
+      setByName('option', JSON.stringify({ name: 'api-server', value: 'https://api.example.com' }));
+      expect(ctx.getServer().useWss).toBe(true);
+    });
+
+    it('options (bulk) syncs server keys to ctx.server', () => {
+      setByName('options', JSON.stringify({
+        'custom-rendezvous-server': 'bulk-server.example.com',
+        'relay-server': 'bulk-relay.example.com',
+        'api-server': 'https://bulk-api.example.com',
+        'key': 'bulk-key=',
+      }));
+      const s = ctx.getServer();
+      expect(s.rendezvousHost).toBe('bulk-server.example.com');
+      expect(s.relayHost).toBe('bulk-relay.example.com');
+      expect(s.apiHost).toBe('https://bulk-api.example.com');
+      expect(s.key).toBe('bulk-key=');
+    });
+
+    it('non-server option does not change ctx.server', () => {
+      const before = ctx.getServer();
+      setByName('option', JSON.stringify({ name: 'theme', value: 'dark' }));
+      expect(ctx.getServer()).toEqual(before);
+    });
   });
 
   // ---- favorites (1 key) ----
@@ -472,8 +525,24 @@ describe('dispatcher', () => {
       expect(getByName('api_server')).toMatch(/^https?:\/\//);
     });
 
+    it('api_server defaults to scheme + rendezvousHost', () => {
+      const s = ctx.getServer();
+      const expected = `${s.useWss ? 'https' : 'http'}://${s.rendezvousHost}`;
+      expect(getByName('api_server')).toBe(expected);
+    });
+
+    it('api_server returns user-set api-server when set', () => {
+      setByName('option', JSON.stringify({ name: 'api-server', value: 'https://custom-api.example.com' }));
+      expect(getByName('api_server')).toBe('https://custom-api.example.com');
+    });
+
     it('is_using_public_server returns "true" by default', () => {
       expect(getByName('is_using_public_server')).toBe('true');
+    });
+
+    it('is_using_public_server returns "false" after custom server set', () => {
+      setByName('option', JSON.stringify({ name: 'custom-rendezvous-server', value: 'custom.example.com' }));
+      expect(getByName('is_using_public_server')).toBe('false');
     });
   });
 

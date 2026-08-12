@@ -188,6 +188,8 @@ export interface BridgeInitOptions {
 export interface ServerConfigLike {
   rendezvousHost: string;
   relayHost?: string;
+  /** Full API server URL (with scheme) when set separately via the `api-server` option. */
+  apiHost?: string;
   key: string;
   useWss: boolean;
 }
