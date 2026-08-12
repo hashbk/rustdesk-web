@@ -13,9 +13,6 @@ permissions:
   contents: read
 
 jobs:
-  # ------------------------------------------------------------------
-  # Quality gate: lint, typecheck, and unit tests.
-  # ------------------------------------------------------------------
   quality:
     name: Lint, Typecheck & Unit Test
     runs-on: ubuntu-latest
@@ -42,9 +39,6 @@ jobs:
       - name: Unit test
         run: npm test
 
-  # ------------------------------------------------------------------
-  # Security audit: check for known vulnerabilities in dependencies.
-  # ------------------------------------------------------------------
   audit:
     name: Dependency Audit
     runs-on: ubuntu-latest
@@ -64,176 +58,55 @@ jobs:
         run: npm audit --audit-level=moderate
         continue-on-error: true
 
-  # ------------------------------------------------------------------
-  # Build the TS bridge layer.
-  # ------------------------------------------------------------------
-  bridge:
-    name: Build TS Bridge
+  build:
+    name: Build Pipeline
+    uses: ./.github/workflows/build.yml
+    with:
+      retention-days: 30
+
+  publish:
+    name: Publish Nightly Pre-release
+    needs: [quality, audit, build]
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v7
-        with:
-          submodules: recursive
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '24'
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build bridge
-        run: npm run build:bridge
-
-      - name: Verify bridge.js
-        run: |
-          test -f dist/bridge.js || { echo "dist/bridge.js not found"; exit 1; }
-          echo "bridge.js size: $(wc -c < dist/bridge.js) bytes"
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: nightly-bridge-dist
-          path: dist/bridge.js
-          retention-days: 30
-
-  # ------------------------------------------------------------------
-  # Run bridge integration tests (jsdom).
-  # ------------------------------------------------------------------
-  bridge-integration:
-    name: Bridge Integration Test
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          submodules: recursive
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '24'
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run bridge integration tests
-        run: npx vitest run src/bridge/__tests__/main-handlers.test.ts --reporter=verbose
-
-  # ------------------------------------------------------------------
-  # Build the full Flutter Web app, reusing the bridge artifact.
-  # ------------------------------------------------------------------
-  flutter-web:
-    name: Build Flutter Web
-    needs: bridge
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          submodules: recursive
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '24'
-          cache: npm
-
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.24.5'
-          cache: true
-
-      - name: Install npm dependencies
-        run: npm ci
-
       - uses: actions/download-artifact@v7
         with:
-          name: nightly-bridge-dist
-          path: dist/
-
-      - name: Copy bridge to flutter web
-        run: |
-          mkdir -p vendor/rustdesk/flutter/web/js
-          cp flutter-web/index.html   vendor/rustdesk/flutter/web/index.html
-          cp flutter-web/manifest.json vendor/rustdesk/flutter/web/manifest.json
-          cp -r flutter-web/icons/    vendor/rustdesk/flutter/web/icons/ 2>/dev/null || true
-          cp dist/bridge.js           vendor/rustdesk/flutter/web/js/bridge.js
-
-      - name: Flutter pub get
-        run: cd vendor/rustdesk/flutter && flutter pub get
-
-      - name: Flutter build web
-        run: cd vendor/rustdesk/flutter && flutter build web --release
-
-      - name: Verify build output
-        run: |
-          WEB_DIR="vendor/rustdesk/flutter/build/web"
-          test -f "$WEB_DIR/index.html"    || { echo "index.html not found";  exit 1; }
-          test -f "$WEB_DIR/js/bridge.js"  || { echo "bridge.js not found";   exit 1; }
-          test -f "$WEB_DIR/flutter.js"    || { echo "flutter.js not found";  exit 1; }
-          echo "All expected files present in Flutter web build"
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: nightly-flutter-web-dist
-          path: vendor/rustdesk/flutter/build/web/
-          retention-days: 30
-
-  # ------------------------------------------------------------------
-  # E2E smoke test against the fully built Flutter Web app.
-  # ------------------------------------------------------------------
-  e2e-smoke:
-    name: E2E Smoke Test
-    needs: flutter-web
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/download-artifact@v7
-        with:
-          name: nightly-flutter-web-dist
+          name: flutter-web-dist
           path: web-dist/
 
-      - name: Serve and verify
+      - name: Create release archives
         run: |
-          python3 -m http.server 8099 --directory web-dist/ &
-          SERVER_PID=$!
-          sleep 2
+          DATE=$(date -u +%Y%m%d)
+          echo "DATE=$DATE" >> "$GITHUB_ENV"
+          tar -czf "rustdesk-web-nightly-${DATE}.tar.gz" -C web-dist .
+          (cd web-dist && zip -r "../rustdesk-web-nightly-${DATE}.zip" .)
 
-          fail() { echo "::error::$1"; kill "$SERVER_PID" 2>/dev/null || true; exit 1; }
+      - name: Create nightly pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly-${{ env.DATE }}
+          name: Nightly Build (${{ env.DATE }})
+          files: |
+            rustdesk-web-nightly-${{ env.DATE }}.tar.gz
+            rustdesk-web-nightly-${{ env.DATE }}.zip
+          body: |
+            ## Nightly Build — ${{ env.DATE }}
 
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8099/)
-          [ "$STATUS" = "200" ] || fail "index.html fetch failed: HTTP $STATUS"
-          echo "index.html served with HTTP 200"
+            Automated nightly build from `main` branch.
 
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8099/js/bridge.js)
-          [ "$STATUS" = "200" ] || fail "bridge.js fetch failed: HTTP $STATUS"
-          echo "bridge.js served with HTTP 200"
+            **This is a pre-release build and may be unstable.**
 
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8099/flutter.js)
-          [ "$STATUS" = "200" ] || fail "flutter.js fetch failed: HTTP $STATUS"
-          echo "flutter.js served with HTTP 200"
+            ### Artifacts
+            - `rustdesk-web-nightly-${{ env.DATE }}.tar.gz` — Flutter Web app (tar.gz)
+            - `rustdesk-web-nightly-${{ env.DATE }}.zip` — Flutter Web app (zip)
+          prerelease: true
+          make_latest: 'false'
+          generate_release_notes: false
 
-          curl -s http://localhost:8099/ | grep -q "bridge.js" \
-            || fail "index.html does not reference bridge.js"
-          echo "index.html references bridge.js"
-
-          kill "$SERVER_PID" 2>/dev/null || true
-          echo "E2E smoke test passed!"
-
-  # ------------------------------------------------------------------
-  # Summary job that gates on all previous jobs.  This provides a
-  # single required check for branch protection.
-  # ------------------------------------------------------------------
-  nightly-summary:
-    name: Nightly Build Summary
-    needs: [quality, audit, bridge, bridge-integration, flutter-web, e2e-smoke]
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - name: Report success
+      - name: Write summary
         run: |
           echo "## Nightly Build Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -241,9 +114,7 @@ jobs:
           echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| Quality (lint + typecheck + test) | ✅ |" >> $GITHUB_STEP_SUMMARY
           echo "| Dependency audit | ✅ |" >> $GITHUB_STEP_SUMMARY
-          echo "| Bridge build | ✅ |" >> $GITHUB_STEP_SUMMARY
-          echo "| Bridge integration test | ✅ |" >> $GITHUB_STEP_SUMMARY
-          echo "| Flutter Web build | ✅ |" >> $GITHUB_STEP_SUMMARY
-          echo "| E2E smoke test | ✅ |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build pipeline (bridge + flutter-web + e2e) | ✅ |" >> $GITHUB_STEP_SUMMARY
+          echo "| Pre-release publish | ✅ |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "All nightly build jobs passed." >> $GITHUB_STEP_SUMMARY
+          echo "Tag: \`nightly-${{ env.DATE }}\`" >> $GITHUB_STEP_SUMMARY
