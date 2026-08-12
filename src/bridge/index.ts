@@ -39,8 +39,22 @@ export type * from './types';
 const dispatcher = createDispatcher(defaultContext);
 
 /**
- * Install `window.setByName`, `window.getByName`, and `window.init`.
- * Idempotent: calling twice overwrites with the same dispatcher.
+ * Detect whether the current browser is on a mobile device.
+ *
+ * RustDesk's Dart side calls `window.isMobile()` via `js.context.callMethod`
+ * (`flutter/lib/web/common.dart`) to determine `isWebDesktop_`.  The bridge
+ * must therefore expose this global before Flutter accesses it, otherwise
+ * `Cannot read properties of undefined (reading 'apply')` is thrown and the
+ * app never renders.
+ */
+function isMobile(): boolean {
+  return /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+}
+
+/**
+ * Install `window.setByName`, `window.getByName`, `window.init`, and
+ * `window.isMobile`.  Idempotent: calling twice overwrites with the same
+ * dispatcher.
  *
  * Also wires `window.onGlobalEvent` registration: when Flutter assigns a
  * function to `window.onGlobalEvent`, we intercept the assignment via a
@@ -55,6 +69,7 @@ export function installBridge(ctx: BridgeContext = defaultContext): void {
   w.init = (options?: BridgeInitOptions) => {
     void initBridge(ctx, options);
   };
+  w.isMobile = isMobile;
   wireGlobalEventCallback();
 }
 
@@ -95,5 +110,6 @@ if (typeof window !== 'undefined') {
   w.init = (options?: BridgeInitOptions) => {
     void initBridge(defaultContext, options);
   };
+  w.isMobile = isMobile;
   wireGlobalEventCallback();
 }

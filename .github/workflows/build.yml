@@ -126,9 +126,9 @@ jobs:
       - name: Verify build output
         run: |
           WEB_DIR="vendor/rustdesk/flutter/build/web"
-          test -f "$WEB_DIR/index.html"    || { echo "index.html not found";  exit 1; }
-          test -f "$WEB_DIR/js/bridge.js"  || { echo "bridge.js not found";   exit 1; }
-          test -f "$WEB_DIR/flutter.js"    || { echo "flutter.js not found";  exit 1; }
+          test -f "$WEB_DIR/index.html"              || { echo "index.html not found";          exit 1; }
+          test -f "$WEB_DIR/js/bridge.js"            || { echo "bridge.js not found";           exit 1; }
+          test -f "$WEB_DIR/flutter_bootstrap.js"    || { echo "flutter_bootstrap.js not found"; exit 1; }
           echo "All expected files present in Flutter web build"
 
       - uses: actions/upload-artifact@v7
@@ -164,13 +164,17 @@ jobs:
           [ "$STATUS" = "200" ] || fail "bridge.js fetch failed: HTTP $STATUS"
           echo "bridge.js served with HTTP 200"
 
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8099/flutter.js)
-          [ "$STATUS" = "200" ] || fail "flutter.js fetch failed: HTTP $STATUS"
-          echo "flutter.js served with HTTP 200"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8099/flutter_bootstrap.js)
+          [ "$STATUS" = "200" ] || fail "flutter_bootstrap.js fetch failed: HTTP $STATUS"
+          echo "flutter_bootstrap.js served with HTTP 200"
 
           curl -s http://localhost:8099/ | grep -q "bridge.js" \
             || fail "index.html does not reference bridge.js"
           echo "index.html references bridge.js"
+
+          curl -s http://localhost:8099/ | grep -q "flutter_bootstrap.js" \
+            || fail "index.html does not reference flutter_bootstrap.js"
+          echo "index.html references flutter_bootstrap.js"
 
           kill "$SERVER_PID" 2>/dev/null || true
           echo "E2E smoke test passed!"
