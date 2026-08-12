@@ -490,12 +490,6 @@ describe('dispatcher', () => {
       warn.mockRestore();
     });
 
-    it('stubbed keys (load_ab) warn but do not throw', () => {
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      expect(() => setByName('load_ab')).not.toThrow();
-      expect(warn).toHaveBeenCalled();
-      warn.mockRestore();
-    });
   });
 
   // ---- 2fa (1 key) ----

@@ -52,6 +52,26 @@ function isMobile(): boolean {
 }
 
 /**
+ * Wrap a dispatcher's setByName to handle 3-argument calls from Dart.
+ *
+ * RustDesk's `sessionSetEdgeScrollEdgeThickness` calls
+ * `setByName('option:session', 'edge-scroll-edge-thickness', value)` with
+ * 3 positional args.  The TS handler expects a JSON `{name, value}` string,
+ * so we combine arg2+arg3 into that shape when a third arg is present.
+ */
+function wrapSetByName(
+  fn: (name: string, value?: string) => void,
+): (name: string, value?: string, extra?: string) => void {
+  return (name: string, value?: string, extra?: string) => {
+    if (extra !== undefined && value !== undefined) {
+      fn(name, JSON.stringify({ name: value, value: extra }));
+    } else {
+      fn(name, value);
+    }
+  };
+}
+
+/**
  * Install `window.setByName`, `window.getByName`, `window.init`, and
  * `window.isMobile`.  Idempotent: calling twice overwrites with the same
  * dispatcher.
@@ -64,7 +84,7 @@ function isMobile(): boolean {
 export function installBridge(ctx: BridgeContext = defaultContext): void {
   const d = createDispatcher(ctx);
   const w = window as unknown as Record<string, unknown>;
-  w.setByName = (name: string, value?: string) => d.setByName(name, value);
+  w.setByName = wrapSetByName(d.setByName);
   w.getByName = (name: string, arg?: string) => d.getByName(name, arg);
   w.init = (options?: BridgeInitOptions) => {
     void initBridge(ctx, options);
@@ -105,7 +125,7 @@ function wireGlobalEventCallback(): void {
 // test file imports `createDispatcher` directly instead.
 if (typeof window !== 'undefined') {
   const w = window as unknown as Record<string, unknown>;
-  w.setByName = (name: string, value?: string) => dispatcher.setByName(name, value);
+  w.setByName = wrapSetByName(dispatcher.setByName);
   w.getByName = (name: string, arg?: string) => dispatcher.getByName(name, arg);
   w.init = (options?: BridgeInitOptions) => {
     void initBridge(defaultContext, options);

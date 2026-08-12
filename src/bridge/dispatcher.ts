@@ -437,8 +437,12 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
     },
 
     load_ab: () => {
-      // Address book is loaded from localStorage on demand; no async work.
-      stub('set', 'load_ab', 'address book is localStorage-backed');
+      // Address book is localStorage-backed; load synchronously and notify
+      // Flutter via the onLoadAbFinished callback (Dart waits with a 2s
+      // Completer timeout).
+      const data = ctx.getAddressBook();
+      const cb = (window as unknown as { onLoadAbFinished?: (s: string) => void }).onLoadAbFinished;
+      cb?.(typeof data === 'string' ? data : JSON.stringify(data));
     },
 
     save_ab: (value: string) => {
@@ -451,7 +455,12 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
     },
 
     load_group: () => {
-      stub('set', 'load_group', 'group is localStorage-backed');
+      // Group is localStorage-backed; load synchronously and notify Flutter
+      // via the onLoadGroupFinished callback (Dart waits with a 2s Completer
+      // timeout).
+      const data = ctx.getGroup();
+      const cb = (window as unknown as { onLoadGroupFinished?: (s: string) => void }).onLoadGroupFinished;
+      cb?.(typeof data === 'string' ? data : JSON.stringify(data));
     },
 
     save_group: (value: string) => {
@@ -612,7 +621,7 @@ export function createGetRegistry(ctx: BridgeContext): GetRegistry {
     },
 
     // ---- trusted devices ----
-    enable_trusted_devices: () => 'false',
+    enable_trusted_devices: () => 'N',
 
     // ---- account auth ----
     account_auth_result: () => {
