@@ -20,7 +20,7 @@ import type { MessageT } from '../protos';
 import { BridgeContext } from './context';
 import { getCachedCodecAbilities } from './init';
 
-import { translate as translateText } from './translations';
+import { translate as translateText, langs as availableLangs } from './translations';
 import type {
   SetRegistry,
   GetRegistry,
@@ -931,7 +931,7 @@ export function createGetRegistry(ctx: BridgeContext): GetRegistry {
     main_display: () => '0',
 
     // ---- languages ----
-    langs: () => JSON.stringify(['en', 'zh-cn', 'zh-tw', 'de', 'fr', 'es', 'ja', 'ko', 'ru', 'pt']),
+    langs: () => JSON.stringify(availableLangs),
 
     // ---- translation ----
     translate: (arg: string) => {

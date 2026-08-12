@@ -79,7 +79,7 @@ jobs:
         run: npm ci
 
       - name: Run bridge integration tests
-        run: npx vitest run src/bridge/__tests__/ --reporter=verbose
+        run: npm run gen-translations && npx vitest run src/bridge/__tests__/ --reporter=verbose
 
   flutter-web:
     name: Build Flutter Web
