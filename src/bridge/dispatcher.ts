@@ -429,25 +429,62 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
     // ---- peers / address book ----
     remove_peer: (value: string) => {
       ctx.removePeer(value);
+      // Also delete from server if we have a personal AB guid.
+      void (async () => {
+        try {
+          const client = ctx.getHbbsClient();
+          const guid = await client.getPersonalAbGuid();
+          if (guid) await client.deletePeers(guid, [value]);
+        } catch (err) {
+          console.warn('[bridge] remove_peer server delete failed:', err);
+        }
+      })();
     },
 
     query_onlines: (value: string) => {
-      // Online-status query would hit the rendezvous server; stubbed for now.
+      // Online-status query requires the rendezvous protocol (not HTTP).
+      // The Dart side uses a separate UDP connection to the rendezvous
+      // server; the TS bridge does not implement this yet.
       stub('set', 'query_onlines', value);
     },
 
     load_ab: () => {
-      // Address book is localStorage-backed; load synchronously and notify
-      // Flutter via the onLoadAbFinished callback (Dart waits with a 2s
-      // Completer timeout).
-      const data = ctx.getAddressBook();
+      // 1. Fast path: return cached data from localStorage immediately so
+      //    Flutter's 2s Completer doesn't time out.
+      const cached = ctx.getAddressBook();
       const cb = (window as unknown as { onLoadAbFinished?: (s: string) => void }).onLoadAbFinished;
-      cb?.(typeof data === 'string' ? data : JSON.stringify(data));
+      const cachedStr = typeof cached === 'string' ? cached : JSON.stringify(cached);
+      cb?.(cachedStr);
+
+      // 2. Async server sync: pull latest from HBBS, update cache, and
+      //    notify Flutter again with fresh data.
+      void (async () => {
+        try {
+          const client = ctx.getHbbsClient();
+          const serverData = await client.loadAb();
+          if (serverData) {
+            ctx.setAddressBook(serverData);
+            cb?.(serverData);
+          }
+        } catch (err) {
+          console.warn('[bridge] load_ab server sync failed:', err);
+        }
+      })();
     },
 
     save_ab: (value: string) => {
       const data = parseJson(value);
       ctx.setAddressBook(data ?? value);
+
+      // Async push to server (legacy mode).
+      void (async () => {
+        try {
+          const client = ctx.getHbbsClient();
+          await client.setLegacyAb(value);
+        } catch (err) {
+          console.warn('[bridge] save_ab server push failed:', err);
+        }
+      })();
     },
 
     clear_ab: () => {
@@ -455,12 +492,25 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
     },
 
     load_group: () => {
-      // Group is localStorage-backed; load synchronously and notify Flutter
-      // via the onLoadGroupFinished callback (Dart waits with a 2s Completer
-      // timeout).
-      const data = ctx.getGroup();
+      // 1. Fast path: return cached data from localStorage.
+      const cached = ctx.getGroup();
       const cb = (window as unknown as { onLoadGroupFinished?: (s: string) => void }).onLoadGroupFinished;
-      cb?.(typeof data === 'string' ? data : JSON.stringify(data));
+      const cachedStr = typeof cached === 'string' ? cached : JSON.stringify(cached);
+      cb?.(cachedStr);
+
+      // 2. Async server sync.
+      void (async () => {
+        try {
+          const client = ctx.getHbbsClient();
+          const serverData = await client.loadGroup();
+          if (serverData) {
+            ctx.setGroup(serverData);
+            cb?.(serverData);
+          }
+        } catch (err) {
+          console.warn('[bridge] load_group server sync failed:', err);
+        }
+      })();
     },
 
     save_group: (value: string) => {
