@@ -1025,7 +1025,21 @@ export function createGetRegistry(ctx: BridgeContext): GetRegistry {
       if (!payload || !payload.id || !payload.name) return '';
       return ctx.getPeerOption(payload.id, payload.name);
     },
-    'option:user:default': (arg: string) => ctx.getUserDefaultOption(arg),
+    'option:user:default': (arg: string) => {
+      const stored = ctx.getUserDefaultOption(arg);
+      if (stored) return stored;
+      const defaults: Record<string, string> = {
+        'view_style': 'original',
+        'scroll_style': 'scrollauto',
+        'image_quality': 'balanced',
+        'codec-preference': 'auto',
+        'custom_image_quality': '50',
+        'custom-fps': '30',
+        'edge-scroll-edge-thickness': '100',
+        'trackpad-speed': '100',
+      };
+      return defaults[arg] ?? '';
+    },
 
     // ---- favorites ----
     fav: () => JSON.stringify(ctx.getFav()),
