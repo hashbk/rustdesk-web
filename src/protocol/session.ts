@@ -136,6 +136,27 @@ export interface SessionEvents {
   closeReason: (reason: string) => void;
   error: (error: Error) => void;
   log: (message: string) => void;
+  // ---- Events added for Issue #168 §7 (vendor alignment) ----
+  /** Lightweight toast notification (model.dart:340). */
+  toast: (text: string) => void;
+  /** Peer display info re-sync (model.dart:346, flutter.rs:944). */
+  syncPeerInfo: (displays: unknown) => void;
+  /** Platform additions re-sync (model.dart:348, flutter.rs:952). */
+  syncPlatformAdditions: (data: string) => void;
+  /** Folder files update (file_model.dart:397). */
+  updateFolderFiles: (data: Record<string, unknown>) => void;
+  /** Load last transfer job (file_model.dart:395). */
+  loadLastJob: (data: Record<string, unknown>) => void;
+  /** New incoming connection (model.dart:399). */
+  addConnection: (client: Record<string, unknown>) => void;
+  /** Client removed (model.dart:401). */
+  onClientRemove: (client: Record<string, unknown>) => void;
+  /** Multiple windows session info (model.dart:342, flutter.rs:968). */
+  setMultipleWindowsSession: (sessions: unknown[]) => void;
+  /** Peer fingerprint (model.dart:438, flutter.rs:754). */
+  fingerprint: (fingerprint: string) => void;
+  /** Screenshot notification (model.dart:484, flutter.rs:1124). */
+  screenshot: (msg: Record<string, unknown>) => void;
 }
 
 type Listener<K extends keyof SessionEvents> = SessionEvents[K];
@@ -238,10 +259,14 @@ export class RemoteSession {
     await this.rendezvousStream.connect();
 
     const forceRelay = this.config.forceRelay ?? true;
+    // Vendor (rendezvous_mediator.rs:659) always relays on web (use_ws()).
+    // When forcing relay, set natType = SYMMETRIC (2) to steer the server
+    // toward relay (client.rs:423-425).
+    const NAT_SYMMETRIC = 2;
     const req: RendezvousMessageT = {
       punchHoleRequest: {
         id: this.config.peerId,
-        natType: 0,
+        natType: forceRelay ? NAT_SYMMETRIC : 0,
         licenceKey: this.config.server.key,
         connType: this.config.connType ?? ConnType.DEFAULT_CONN,
         token: this.config.accessToken ?? '',
@@ -260,6 +285,7 @@ export class RemoteSession {
   }
 
   private async negotiateRelay(queue: MessageQueue): Promise<{ uuid: string; relayServer: string; signedPk: Uint8Array }> {
+    const forceRelay = this.config.forceRelay ?? true;
     for (let i = 0; i < 5; i++) {
       const data = await queue.next(15000);
       if (data.length === 0) throw new Error('rendezvous closed');
@@ -277,8 +303,16 @@ export class RemoteSession {
         const ph = msg.punchHoleResponse;
         if (ph.otherFailure) throw new Error(ph.otherFailure);
         if (ph.failure !== undefined && ph.failure !== null) {
-          const failureNames = ['ID_NOT_EXIST', 'OFFLINE', 'LICENSE_MISMATCH', 'LICENSE_OVERUSE'];
-          const name = failureNames[ph.failure] ?? `UNKNOWN_${ph.failure}`;
+          // Failure enum values are non-contiguous (rendezvous.proto:121-126):
+          //   ID_NOT_EXIST = 0, OFFLINE = 2, LICENSE_MISMATCH = 3, LICENSE_OVERUSE = 4
+          // Indexing a contiguous array would mis-map OFFLINE(2)→LICENSE_MISMATCH.
+          const FAILURE_NAMES: Record<number, string> = {
+            0: 'ID_NOT_EXIST',
+            2: 'OFFLINE',
+            3: 'LICENSE_MISMATCH',
+            4: 'LICENSE_OVERUSE',
+          };
+          const name = FAILURE_NAMES[ph.failure] ?? `UNKNOWN_${ph.failure}`;
           throw new Error(`punch hole failure: ${name} (${ph.failure})`);
         }
         if (ph.relayServer) {
@@ -289,6 +323,28 @@ export class RemoteSession {
               id: this.config.peerId,
               uuid,
               relayServer: ph.relayServer,
+              secure: true,
+              licenceKey: this.config.server.key,
+              connType: this.config.connType ?? ConnType.DEFAULT_CONN,
+              token: this.config.accessToken ?? '',
+            },
+          };
+          this.rendezvousStream!.send(encodeRendezvous(relayReq));
+          continue;
+        }
+        // Web cannot do P2P hole punching.  When forceRelay is set (always
+        // true on web per vendor use_ws()), fall back to the default relay
+        // server instead of throwing (vendor rendezvous_mediator.rs:659
+        // always relays on websocket).
+        if (forceRelay) {
+          const defaultRelay = this.config.server.relayHost ?? this.config.server.rendezvousHost;
+          this.log(`force_relay: falling back to default relay ${defaultRelay}`);
+          const uuid = crypto.randomUUID();
+          const relayReq: RendezvousMessageT = {
+            requestRelay: {
+              id: this.config.peerId,
+              uuid,
+              relayServer: defaultRelay,
               secure: true,
               licenceKey: this.config.server.key,
               connType: this.config.connType ?? ConnType.DEFAULT_CONN,
@@ -377,19 +433,30 @@ export class RemoteSession {
     const first = await this.nextMessage(15000);
     if (first.signedId && peerSignPk) {
       const unsigned = verifySigned(first.signedId.id, peerSignPk);
-      if (!unsigned) throw new Error('failed to verify peer signed id');
-      const idPk = decodeIdPk(unsigned);
-      if (idPk.id !== this.config.peerId) throw new Error('peer id mismatch in handshake');
-      const peerBoxPk = idPk.pk;
+      if (!unsigned) {
+        // Vendor (client.rs:815-817) falls back to non-secure on sign
+        // failure instead of aborting — compatible with older servers.
+        this.log('handshake: failed to verify peer signed id, falling back to non-secure');
+        this.relayStream!.send(encodeMessage({}));
+      } else {
+        const idPk = decodeIdPk(unsigned);
+        if (idPk.id !== this.config.peerId) {
+          // Vendor (client.rs:819-823) falls back on pk mismatch.
+          this.log('handshake: peer id mismatch, falling back to non-secure');
+          this.relayStream!.send(encodeMessage({ publicKey: { asymmetricValue: new Uint8Array(), symmetricValue: new Uint8Array() } }));
+        } else {
+          const peerBoxPk = idPk.pk;
 
-      const ourKp = generateBoxKeypair();
-      const secretKey = generateSecretKey();
-      const sealed = boxSeal(secretKey, peerBoxPk, ourKp.secretKey);
-      this.relayStream!.send(
-        encodeMessage({ publicKey: { asymmetricValue: ourKp.publicKey, symmetricValue: sealed } }),
-      );
-      this.relayStream!.setKey(secretKey);
-      this.log('secure channel established');
+          const ourKp = generateBoxKeypair();
+          const secretKey = generateSecretKey();
+          const sealed = boxSeal(secretKey, peerBoxPk, ourKp.secretKey);
+          this.relayStream!.send(
+            encodeMessage({ publicKey: { asymmetricValue: ourKp.publicKey, symmetricValue: sealed } }),
+          );
+          this.relayStream!.setKey(secretKey);
+          this.log('secure channel established');
+        }
+      }
     } else {
       this.relayStream!.send(encodeMessage({}));
       this.log('non-secure channel (no peer sign key)');
@@ -407,6 +474,24 @@ export class RemoteSession {
       throw new Error('expected hash before login');
     }
     await this.sendLogin(msg.hash);
+  }
+
+  /** Build the connType union field for LoginRequest (client.rs:2761-2778). */
+  private buildLoginRequestUnion(): Partial<NonNullable<MessageT['loginRequest']>> {
+    const connType = this.config.connType ?? ConnType.DEFAULT_CONN;
+    switch (connType) {
+      case ConnType.FILE_TRANSFER:
+        return { fileTransfer: { dir: this.config.remoteDir ?? '', showHidden: !!this.config.showHidden } };
+      case ConnType.VIEW_CAMERA:
+        return { viewCamera: {} };
+      case ConnType.PORT_FORWARD:
+      case ConnType.RDP:
+        return { portForward: { host: this.config.portForwardHost ?? '', port: this.config.portForwardPort ?? 0 } };
+      case ConnType.TERMINAL:
+        return { terminal: { serviceId: this.config.terminalServiceId ?? '' } };
+      default:
+        return {};
+    }
   }
 
   private async sendLogin(hash: HashT): Promise<void> {
@@ -446,6 +531,7 @@ export class RemoteSession {
           },
           ...this.initialOptions,
         },
+        ...this.buildLoginRequestUnion(),
       },
     };
     this.relayStream!.send(encodeMessage(loginMsg));
@@ -627,6 +713,7 @@ export class RemoteSession {
           },
           ...this.initialOptions,
         },
+        ...this.buildLoginRequestUnion(),
       },
     };
     this.relayStream!.send(encodeMessage(loginMsg));

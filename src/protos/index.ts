@@ -176,6 +176,14 @@ export type MessageT = {
     myPlatform?: string;
     hwid?: Uint8Array;
     avatar?: string;
+    /** Union field: file transfer session params. */
+    fileTransfer?: { dir?: string; showHidden?: boolean };
+    /** Union field: port forward / RDP session params. */
+    portForward?: { host?: string; port?: number };
+    /** Union field: view camera session (no params). */
+    viewCamera?: Record<string, never>;
+    /** Union field: terminal session params. */
+    terminal?: { serviceId?: string };
   };
   loginResponse?: { error?: string; peerInfo?: PeerInfoT; enableTrustedDevices?: boolean };
   peerInfo?: PeerInfoT;
@@ -227,6 +235,7 @@ export type MessageT = {
     error?: { id?: number; error?: string; fileNum?: number };
     done?: { id?: number; fileNum?: number };
     digest?: { id?: number; fileNum?: number; lastModified?: number; fileSize?: number; isUpload?: boolean; isIdentical?: boolean; transferredSize?: number; isResume?: boolean };
+    emptyDirs?: { path?: string; emptyDirs?: { id?: number; path?: string; entries?: FileEntryT[] }[] };
   };
   terminalAction?: {
     open?: { terminalId?: number; rows?: number; cols?: number };

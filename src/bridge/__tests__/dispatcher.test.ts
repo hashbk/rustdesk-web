@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { BridgeContext } from '../context';
 import { createDispatcher } from '../dispatcher';
 import { resetInit } from '../init';
+import { setGlobalEventCallback, resetGlobalEventCallback } from '../events';
 
 // ---- mock RemoteSession ----
 // vi.hoisted ensures the mock object exists before vi.mock's hoisted factory
@@ -1170,15 +1171,25 @@ describe('dispatcher', () => {
     });
   });
 
-  describe('enter_or_leave (Issue 2.2)', () => {
+  describe('enter_or_leave (Issue 2.2, Issue #168 #3)', () => {
     beforeEach(() => {
       setByName('session_add_sync', JSON.stringify({ id: '1' }));
       clearMockCalls();
     });
 
-    it('does not release keys on enter', () => {
+    it('does not release keys on enter with JS boolean true', () => {
+      // Dart passes a JS boolean (true), not a string ('true').
+      setByName('enter_or_leave', true as unknown as string);
+      expect(mockSession.sendKey).not.toHaveBeenCalled();
+    });
+
+    it('does not release keys on enter with string true', () => {
       setByName('enter_or_leave', 'true');
       expect(mockSession.sendKey).not.toHaveBeenCalled();
+    });
+
+    it('does not throw on leave with JS boolean false', () => {
+      expect(() => setByName('enter_or_leave', false as unknown as string)).not.toThrow();
     });
 
     it('does not throw on leave with no modifiers pressed', () => {
@@ -1243,10 +1254,26 @@ describe('dispatcher', () => {
     });
   });
 
-  describe('session_add_sync forceRelay/switchUuid (Issue 7.1)', () => {
+  describe('session_add_sync forceRelay/switchUuid (Issue 7.1, Issue #169 #2)', () => {
     it('accepts forceRelay and switchUuid without error', () => {
       expect(() => setByName('session_add_sync', JSON.stringify({
         id: '1', forceRelay: true, switchUuid: 'abc-123', is_shared_password: true,
+      }))).not.toThrow();
+      expect(mockSession.connect).toHaveBeenCalledTimes(1);
+    });
+
+    it('works when forceRelay is omitted (web always relays via ?? true)', () => {
+      // Vendor bridge.dart:91-101 omits forceRelay; session.ts:240 ?? true
+      // must default to true so the web client always uses relay.
+      expect(() => setByName('session_add_sync', JSON.stringify({
+        id: '1', password: 'pw',
+      }))).not.toThrow();
+      expect(mockSession.connect).toHaveBeenCalledTimes(1);
+    });
+
+    it('preserves forceRelay: false when explicitly set', () => {
+      expect(() => setByName('session_add_sync', JSON.stringify({
+        id: '1', forceRelay: false,
       }))).not.toThrow();
       expect(mockSession.connect).toHaveBeenCalledTimes(1);
     });
@@ -1271,9 +1298,76 @@ describe('dispatcher', () => {
     });
   });
 
-  describe('select_files (Issue 3.1)', () => {
-    it('does not throw when called', () => {
+  describe('select_files (Issue 3.1, Issue #168 #4)', () => {
+    it('does not throw when called with string false', () => {
       expect(() => setByName('select_files', 'false')).not.toThrow();
+    });
+
+    it('does not throw when called with JS boolean false', () => {
+      expect(() => setByName('select_files', false as unknown as string)).not.toThrow();
+    });
+
+    it('sets webkitdirectory when called with JS boolean true (folder mode)', () => {
+      const createElementSpy = vi.spyOn(document, 'createElement');
+      setByName('select_files', true as unknown as string);
+      const inputCall = createElementSpy.mock.calls.find((c) => c[0] === 'input');
+      expect(inputCall).toBeDefined();
+      const input = createElementSpy.mock.results.find((r) => (r.value as HTMLInputElement).type === 'file')?.value as HTMLInputElement;
+      expect(input).toBeDefined();
+      expect(input.webkitdirectory).toBe(true);
+      createElementSpy.mockRestore();
+    });
+
+    it('does not set webkitdirectory when called with JS boolean false (file mode)', () => {
+      const createElementSpy = vi.spyOn(document, 'createElement');
+      setByName('select_files', false as unknown as string);
+      const input = createElementSpy.mock.results.find((r) => (r.value as HTMLInputElement).type === 'file')?.value as HTMLInputElement;
+      expect(input).toBeDefined();
+      expect(input.webkitdirectory).toBeFalsy();
+      createElementSpy.mockRestore();
+    });
+
+    it('emits selected_files with vendor format: handleIndex (camelCase), file (single Entry)', () => {
+      // Issue #168 #1: vendor onSelectedFiles (file_model.dart:283-310)
+      // expects obj['handleIndex'] (camelCase) and obj['file'] (single
+      // Entry JSON string with entry_type, modified_time, name, size).
+      const events: Record<string, unknown>[] = [];
+      setGlobalEventCallback((json: string) => { events.push(JSON.parse(json)); });
+
+      // Create a controllable input element with mock files.
+      const mockFile = new File(['content'], 'test.txt', { lastModified: 1700000000000 });
+      const fakeInput = document.createElement('input');
+      Object.defineProperty(fakeInput, 'files', { value: [mockFile], configurable: true });
+      fakeInput.type = 'file';
+      vi.spyOn(document, 'createElement').mockReturnValue(fakeInput);
+      vi.spyOn(fakeInput, 'click').mockImplementation(() => {});
+
+      setByName('select_files', true as unknown as string);
+      // Manually trigger onchange (simulating user file selection).
+      fakeInput.onchange?.({ target: fakeInput } as never);
+
+      // Find the selected_files event.
+      const selectedEvents = events.filter((e) => e.name === 'selected_files');
+      expect(selectedEvents.length).toBe(1);
+      const evt = selectedEvents[0];
+      // camelCase handleIndex (not handle_index)
+      expect(evt).toHaveProperty('handleIndex');
+      expect(evt).not.toHaveProperty('handle_index');
+      // single Entry 'file' (not 'files' array)
+      expect(evt).toHaveProperty('file');
+      expect(evt).not.toHaveProperty('files');
+      const entry = JSON.parse(evt.file as string);
+      // Entry.fromJson expects these fields
+      expect(entry).toHaveProperty('entry_type');
+      expect(entry).toHaveProperty('modified_time');
+      expect(entry).toHaveProperty('name');
+      expect(entry).toHaveProperty('size');
+      expect(entry.name).toBe('test.txt');
+      expect(entry.entry_type).toBe(4); // file
+      expect(typeof entry.modified_time).toBe('number'); // seconds, not ms
+
+      resetGlobalEventCallback();
+      vi.restoreAllMocks();
     });
   });
 });

@@ -39,6 +39,16 @@ export interface SessionAddSyncPayload {
   switchUuid?: string;
   forceRelay?: boolean;
   connToken?: string;
+  /** Remote directory for file-transfer sessions. */
+  remoteDir?: string;
+  /** Show hidden files in file-transfer. */
+  showHidden?: boolean;
+  /** Host for port-forward/RDP. */
+  portForwardHost?: string;
+  /** Port for port-forward/RDP. */
+  portForwardPort?: number;
+  /** Service ID for terminal sessions. */
+  terminalServiceId?: string;
 }
 
 /** JSON payload of `input_key`. */

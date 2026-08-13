@@ -61,6 +61,44 @@ function textDecode(bytes: Uint8Array): string {
   return new TextDecoder().decode(bytes);
 }
 
+/**
+ * Per-job transfer progress tracker for `job_progress` events.
+ *
+ * Vendor (`file_model.dart:1045-1061` `tryUpdateJobProgress`) expects
+ * `speed` (bytes/sec, double) and `finished_size` (cumulative bytes, int).
+ * The native client (`io_loop.rs:1043-1045`) computes speed as
+ * `(transferred - last_transferred) / (elapsed_ms / 1000)` and emits
+ * `job_progress` periodically (~1s), not on every block.
+ */
+interface JobProgressState {
+  fileNum: number;
+  finishedSize: number;
+  lastTime: number;
+  lastBytes: number;
+}
+
+const jobProgressStates = new Map<number, JobProgressState>();
+
+/**
+ * Destination path tracker for `override_file_confirm` events.
+ *
+ * Vendor (`flutter.rs:844`) includes `read_path` (the full path of the
+ * file being overwritten) so the confirmation dialog shows which file.
+ * The bridge learns this path when a transfer is initiated (send_files /
+ * send_local_files) and looks it up by job id when the digest arrives.
+ */
+const transferReadPaths = new Map<number, string>();
+
+/** Record the destination path for a transfer job (called by dispatcher). */
+export function setTransferReadPath(id: number, path: string): void {
+  transferReadPaths.set(id, path);
+}
+
+/** Clear a tracked transfer path (call on job completion/cancel). */
+export function clearTransferReadPath(id: number): void {
+  transferReadPaths.delete(id);
+}
+
 /** Flatten a PeerInfo into the fields expected by the `peer_info` event. */
 function flattenPeerInfo(info: PeerInfoT): Record<string, unknown> {
   const displays = (info.displays ?? []).map((d) => {
@@ -71,7 +109,7 @@ function flattenPeerInfo(info: PeerInfoT): Record<string, unknown> {
       height: d.height,
       name: d.name ?? '',
       online: d.online ?? true,
-      cursor_embedded: d.cursorEmbedded ?? false,
+      cursor_embedded: d.cursorEmbedded ? 1 : 0,
       scale: d.scale ?? 1,
     };
     if (d.originalResolution) {
@@ -129,28 +167,61 @@ function emitFileResponse(resp: NonNullable<MessageT['fileResponse']>): void {
       file_num: String(resp.done.fileNum ?? 0),
     });
   } else if (resp.block) {
-    // File data block: forward as job_progress so Flutter updates the
-    // transfer progress bar (model.dart handles 'job_progress').
+    // File data block: track cumulative transfer progress and emit
+    // `job_progress` with `speed` and `finished_size` so Flutter's
+    // tryUpdateJobProgress (file_model.dart:1045-1061) updates the bar.
+    const id = resp.block.id ?? 0;
+    const fileNum = resp.block.fileNum ?? 0;
+    const dataLen = resp.block.data?.length ?? 0;
+    const now = Date.now();
+    let state = jobProgressStates.get(id);
+    if (!state) {
+      state = { fileNum, finishedSize: 0, lastTime: now, lastBytes: 0 };
+      jobProgressStates.set(id, state);
+    }
+    state.fileNum = fileNum;
+    state.finishedSize += dataLen;
+    const elapsed = now - state.lastTime;
+    // Compute speed in bytes/sec; use at least 1ms to avoid div-by-zero.
+    const speed = elapsed > 0
+      ? (state.finishedSize - state.lastBytes) / (elapsed / 1000)
+      : 0;
     emitGlobalEvent({
       name: 'job_progress',
-      id: String(resp.block.id ?? 0),
-      file_num: String(resp.block.fileNum ?? 0),
-      blk_id: String(resp.block.blkId ?? 0),
-      compressed: String(resp.block.compressed ?? false),
+      id: String(id),
+      file_num: String(fileNum),
+      speed: String(speed),
+      finished_size: String(state.finishedSize),
     });
+    // Reset the speed measurement window every second (matches vendor's
+    // ~1s periodic update in io_loop.rs:update_jobs_status).
+    if (elapsed >= 1000) {
+      state.lastTime = now;
+      state.lastBytes = state.finishedSize;
+    }
   } else if (resp.digest) {
     // Digest triggers an override-confirmation dialog when the destination
-    // file already exists (model.dart handles 'override_file_confirm').
+    // file already exists (model.dart:166-167 expects `read_path`).
+    const id = resp.digest.id ?? 0;
     emitGlobalEvent({
       name: 'override_file_confirm',
-      id: String(resp.digest.id ?? 0),
+      id: String(id),
       file_num: String(resp.digest.fileNum ?? 0),
+      read_path: transferReadPaths.get(id) ?? '',
       is_upload: String(resp.digest.isUpload ?? false),
       file_size: String(resp.digest.fileSize ?? 0),
       last_modified: String(resp.digest.lastModified ?? 0),
       is_identical: String(resp.digest.isIdentical ?? false),
       transferred_size: String(resp.digest.transferredSize ?? 0),
       is_resume: String(resp.digest.isResume ?? false),
+    });
+  } else if (resp.emptyDirs) {
+    // empty_dirs response: emit `empty_dirs` so Flutter's
+    // jobController (file_model.dart:379) can remove empty directories.
+    emitGlobalEvent({
+      name: 'empty_dirs',
+      path: resp.emptyDirs.path ?? '',
+      dirs: JSON.stringify(resp.emptyDirs.emptyDirs ?? []),
     });
   }
 }
@@ -512,6 +583,54 @@ export function attachSessionCallbacks(session: RemoteSession, display: number):
       link: '',
       hasRetry: '',
     });
+  });
+
+  // ---- Issue #168 §7: events that were previously not emitted ----
+
+  session.on('toast', (text: string) => {
+    emitGlobalEvent({ name: 'toast', text });
+  });
+
+  session.on('syncPeerInfo', (displays: unknown) => {
+    emitGlobalEvent({
+      name: 'sync_peer_info',
+      displays: JSON.stringify(displays ?? []),
+    });
+  });
+
+  session.on('syncPlatformAdditions', (data: string) => {
+    emitGlobalEvent({ name: 'sync_platform_additions', platform_additions: data });
+  });
+
+  session.on('updateFolderFiles', (data: Record<string, unknown>) => {
+    emitGlobalEvent({ name: 'update_folder_files', ...data });
+  });
+
+  session.on('loadLastJob', (data: Record<string, unknown>) => {
+    emitGlobalEvent({ name: 'load_last_job', ...data });
+  });
+
+  session.on('addConnection', (client: Record<string, unknown>) => {
+    emitGlobalEvent({ name: 'add_connection', client: JSON.stringify(client) });
+  });
+
+  session.on('onClientRemove', (client: Record<string, unknown>) => {
+    emitGlobalEvent({ name: 'on_client_remove', client: JSON.stringify(client) });
+  });
+
+  session.on('setMultipleWindowsSession', (sessions: unknown[]) => {
+    emitGlobalEvent({
+      name: 'set_multiple_windows_session',
+      windows_sessions: JSON.stringify(sessions ?? []),
+    });
+  });
+
+  session.on('fingerprint', (fingerprint: string) => {
+    emitGlobalEvent({ name: 'fingerprint', fingerprint });
+  });
+
+  session.on('screenshot', (msg: Record<string, unknown>) => {
+    emitGlobalEvent({ name: 'screenshot', msg: JSON.stringify(msg) });
   });
 
   return () => {
