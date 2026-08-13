@@ -152,11 +152,32 @@ describe('dispatcher', () => {
       clearMockCalls();
     });
 
-    it('send_mouse calls session.sendMouse with parsed payload', () => {
-      setByName('send_mouse', JSON.stringify({ mask: 1, x: 100, y: 200 }));
+    it('send_mouse calls session.sendMouse with Dart-format payload', () => {
+      setByName('send_mouse', JSON.stringify({ type: 'down', buttons: 'left', x: 100, y: 200 }));
       expect(mockSession.sendMouse).toHaveBeenCalledWith(
-        expect.objectContaining({ mask: 1, x: 100, y: 200 }),
+        expect.objectContaining({ mask: 1 | (1 << 3), x: 100, y: 200 }),
       );
+    });
+
+    it('send_mouse converts move type with no button', () => {
+      setByName('send_mouse', JSON.stringify({ type: 'move', buttons: '', x: 50, y: 60 }));
+      expect(mockSession.sendMouse).toHaveBeenCalledWith(
+        expect.objectContaining({ mask: 0, x: 50, y: 60 }),
+      );
+    });
+
+    it('send_mouse converts wheel type with wheel button', () => {
+      setByName('send_mouse', JSON.stringify({ type: 'wheel', buttons: 'wheel', x: 0, y: -3 }));
+      expect(mockSession.sendMouse).toHaveBeenCalledWith(
+        expect.objectContaining({ mask: 3 | (4 << 3), x: 0, y: -3 }),
+      );
+    });
+
+    it('send_mouse includes modifiers from ctrl/shift/alt/command', () => {
+      setByName('send_mouse', JSON.stringify({ type: 'down', buttons: 'right', x: 10, y: 20, ctrl: true, shift: true }));
+      const call = mockSession.sendMouse.mock.calls[0][0];
+      expect(call.modifiers).toContain(4);
+      expect(call.modifiers).toContain(29);
     });
 
     it('input_key sends a control key', () => {
@@ -173,19 +194,48 @@ describe('dispatcher', () => {
       );
     });
 
-    it('input_string sends each character as a key press', () => {
+    it('input_key handles VK_ prefix control keys', () => {
+      setByName('input_key', JSON.stringify({ name: 'VK_CONTROL', down: 'true' }));
+      expect(mockSession.sendKey).toHaveBeenCalledWith(
+        expect.objectContaining({ controlKey: 4, down: true }),
+      );
+    });
+
+    it('input_key handles VK_ prefix character keys', () => {
+      setByName('input_key', JSON.stringify({ name: 'VK_A', press: 'true' }));
+      expect(mockSession.sendKey).toHaveBeenCalledWith(
+        expect.objectContaining({ chr: 97, press: true }),
+      );
+    });
+
+    it('input_key handles VK_F1 function key', () => {
+      setByName('input_key', JSON.stringify({ name: 'VK_F1', press: 'true' }));
+      expect(mockSession.sendKey).toHaveBeenCalledWith(
+        expect.objectContaining({ controlKey: 9, press: true }),
+      );
+    });
+
+    it('input_string sends entire string as a single seq key event', () => {
       setByName('input_string', 'ab');
-      expect(mockSession.sendKey).toHaveBeenCalledTimes(2);
+      expect(mockSession.sendKey).toHaveBeenCalledTimes(1);
+      expect(mockSession.sendKey).toHaveBeenCalledWith(
+        expect.objectContaining({ seq: 'ab', press: true }),
+      );
     });
 
-    it('send_chat sends clipboard content', () => {
+    it('send_chat sends chat message via sendMisc', () => {
       setByName('send_chat', 'hello');
-      expect(mockSession.sendClipboard).toHaveBeenCalledTimes(1);
+      expect(mockSession.sendMisc).toHaveBeenCalledWith(
+        expect.objectContaining({ misc: { chatMessage: { text: 'hello' } } }),
+      );
     });
 
-    it('input_os_password sends characters as key presses', () => {
+    it('input_os_password sends entire password as a single seq key event', () => {
       setByName('input_os_password', 'pw');
-      expect(mockSession.sendKey).toHaveBeenCalledTimes(2);
+      expect(mockSession.sendKey).toHaveBeenCalledTimes(1);
+      expect(mockSession.sendKey).toHaveBeenCalledWith(
+        expect.objectContaining({ seq: 'pw', press: true }),
+      );
     });
   });
 
@@ -196,14 +246,16 @@ describe('dispatcher', () => {
       clearMockCalls();
     });
 
-    it('image_quality with named value calls sendImageQuality', () => {
+    it('image_quality with named value calls sendImageQuality and stores option', () => {
       setByName('image_quality', 'best');
       expect(mockSession.sendImageQuality).toHaveBeenCalled();
+      expect(ctx.getSessionOption('image_quality')).toBe('best');
     });
 
-    it('image_quality with numeric value calls sendCustomImageQuality', () => {
+    it('image_quality with numeric value calls sendCustomImageQuality and stores option', () => {
       setByName('image_quality', '50');
       expect(mockSession.sendCustomImageQuality).toHaveBeenCalledWith(50);
+      expect(ctx.getSessionOption('image_quality')).toBe('50');
     });
 
     it('custom-fps calls sendOption with customFps', () => {
@@ -213,8 +265,14 @@ describe('dispatcher', () => {
       );
     });
 
-    it('change_prefer_codec calls sendCodecPreference', () => {
-      setByName('change_prefer_codec', 'vp9');
+    it('change_prefer_codec reads stored session option when no value passed', () => {
+      setByName('option:session', JSON.stringify({ name: 'codec-preference', value: 'vp9' }));
+      setByName('change_prefer_codec', '');
+      expect(mockSession.sendCodecPreference).toHaveBeenCalled();
+    });
+
+    it('change_prefer_codec falls back to explicit value', () => {
+      setByName('change_prefer_codec', 'h264');
       expect(mockSession.sendCodecPreference).toHaveBeenCalled();
     });
   });
@@ -296,6 +354,15 @@ describe('dispatcher', () => {
       expect(ctx.getToggleOption('show-remote-cursor')).toBe(true);
       setByName('option:toggle', 'show-remote-cursor');
       expect(ctx.getToggleOption('show-remote-cursor')).toBe(false);
+    });
+
+    it('option:toggle view-only sends disableKeyboard and disableClipboard', () => {
+      setByName('session_add_sync', JSON.stringify({ id: '1' }));
+      clearMockCalls();
+      setByName('option:toggle', 'view-only');
+      expect(mockSession.sendOption).toHaveBeenCalledWith(
+        expect.objectContaining({ disableKeyboard: 2, disableClipboard: 2 }),
+      );
     });
 
     it('option syncs custom-rendezvous-server to ctx.server', () => {

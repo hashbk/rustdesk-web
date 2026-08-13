@@ -35,6 +35,7 @@ import type {
   PrivacyModeNotification,
   BlockInputNotification,
 } from '../protocol/session';
+import { decompress as zstdDecompress } from 'fzstd';
 import {
   emitGlobalEvent,
 
@@ -166,6 +167,13 @@ export function attachSessionCallbacks(session: RemoteSession, display: number):
   });
 
   session.on('cursorData', (cursor) => {
+    const compressed = cursor.colors ?? new Uint8Array();
+    let colors: Uint8Array;
+    try {
+      colors = zstdDecompress(compressed);
+    } catch {
+      colors = compressed;
+    }
     emitGlobalEvent({
       name: 'cursor_data',
       id: String(cursor.id ?? 0),
@@ -173,7 +181,7 @@ export function attachSessionCallbacks(session: RemoteSession, display: number):
       hoty: String(cursor.hoty ?? 0),
       width: String(cursor.width ?? 0),
       height: String(cursor.height ?? 0),
-      colors: JSON.stringify(Array.from(cursor.colors ?? new Uint8Array())),
+      colors: JSON.stringify(Array.from(colors)),
     });
   });
 
@@ -204,7 +212,18 @@ export function attachSessionCallbacks(session: RemoteSession, display: number):
   });
 
   session.on('switchDisplay', (disp) => {
-    const d = disp as { display?: number; x?: number; y?: number; width?: number; height?: number; cursor_embedded?: boolean };
+    const d = disp as {
+      display?: number; x?: number; y?: number; width?: number; height?: number;
+      cursor_embedded?: boolean;
+      resolutions?: { width?: number; height?: number }[];
+      original_resolution?: { width?: number; height?: number };
+      original_width?: number; original_height?: number;
+    };
+    const resolutions = d.resolutions
+      ? JSON.stringify(d.resolutions.map((r) => ({ width: r.width ?? 0, height: r.height ?? 0 })))
+      : '[]';
+    const origW = d.original_width ?? d.original_resolution?.width ?? 0;
+    const origH = d.original_height ?? d.original_resolution?.height ?? 0;
     emitGlobalEvent({
       name: 'switch_display',
       display: String(d.display ?? 0),
@@ -213,6 +232,9 @@ export function attachSessionCallbacks(session: RemoteSession, display: number):
       width: String(d.width ?? 0),
       height: String(d.height ?? 0),
       cursor_embedded: String(d.cursor_embedded ? 1 : 0),
+      resolutions,
+      original_width: String(origW),
+      original_height: String(origH),
     });
   });
 
