@@ -138,7 +138,7 @@ export interface SessionEvents {
 
 type Listener<K extends keyof SessionEvents> = SessionEvents[K];
 
-const CLIENT_VERSION = '1.3.0';
+const CLIENT_VERSION = '1.4.9';
 
 class MessageQueue {
   private pending: Uint8Array[] = [];
@@ -273,7 +273,11 @@ export class RemoteSession {
       if (union === 'punchHoleResponse' && msg.punchHoleResponse) {
         const ph = msg.punchHoleResponse;
         if (ph.otherFailure) throw new Error(ph.otherFailure);
-        if (ph.failure && ph.failure !== 0) throw new Error(`punch hole failure: ${ph.failure}`);
+        if (ph.failure !== undefined && ph.failure !== null) {
+          const failureNames = ['ID_NOT_EXIST', 'OFFLINE', 'LICENSE_MISMATCH', 'LICENSE_OVERUSE'];
+          const name = failureNames[ph.failure] ?? `UNKNOWN_${ph.failure}`;
+          throw new Error(`punch hole failure: ${name} (${ph.failure})`);
+        }
         if (ph.relayServer) {
           this.log(`peer requests relay via ${ph.relayServer}`);
           const uuid = crypto.randomUUID();
