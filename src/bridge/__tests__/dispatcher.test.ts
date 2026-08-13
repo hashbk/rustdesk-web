@@ -365,6 +365,54 @@ describe('dispatcher', () => {
       );
     });
 
+    it('option:toggle block-input sends blockInput Yes without local update', () => {
+      setByName('session_add_sync', JSON.stringify({ id: '1' }));
+      clearMockCalls();
+      setByName('option:toggle', 'block-input');
+      expect(mockSession.sendOption).toHaveBeenCalledWith(
+        expect.objectContaining({ blockInput: 2 }),
+      );
+      expect(ctx.getToggleOption('block-input')).toBe(false);
+    });
+
+    it('option:toggle unblock-input sends blockInput No', () => {
+      setByName('session_add_sync', JSON.stringify({ id: '1' }));
+      clearMockCalls();
+      setByName('option:toggle', 'unblock-input');
+      expect(mockSession.sendOption).toHaveBeenCalledWith(
+        expect.objectContaining({ blockInput: 1 }),
+      );
+    });
+
+    it('option:toggle enable-file-copy-paste sends enableFileTransfer', () => {
+      setByName('session_add_sync', JSON.stringify({ id: '1' }));
+      clearMockCalls();
+      setByName('option:toggle', 'enable-file-copy-paste');
+      expect(mockSession.sendOption).toHaveBeenCalledWith(
+        expect.objectContaining({ enableFileTransfer: 2 }),
+      );
+    });
+
+    it('option:toggle terminal-persistent sends terminalPersistent', () => {
+      setByName('session_add_sync', JSON.stringify({ id: '1' }));
+      clearMockCalls();
+      setByName('option:toggle', 'terminal-persistent');
+      expect(mockSession.sendOption).toHaveBeenCalledWith(
+        expect.objectContaining({ terminalPersistent: 2 }),
+      );
+    });
+
+    it('option:toggle privacy-mode does not update local state immediately', () => {
+      setByName('session_add_sync', JSON.stringify({ id: '1' }));
+      clearMockCalls();
+      const before = ctx.getToggleOption('privacy-mode');
+      setByName('option:toggle', 'privacy-mode');
+      expect(ctx.getToggleOption('privacy-mode')).toBe(before);
+      expect(mockSession.sendOption).toHaveBeenCalledWith(
+        expect.objectContaining({ privacyMode: 2 }),
+      );
+    });
+
     it('option syncs custom-rendezvous-server to ctx.server', () => {
       setByName('option', JSON.stringify({ name: 'custom-rendezvous-server', value: 'my-server.example.com' }));
       expect(ctx.getServer().rendezvousHost).toBe('my-server.example.com');
@@ -728,9 +776,14 @@ describe('dispatcher', () => {
       expect(mockSession.send2fa).toHaveBeenCalledWith('123456');
     });
 
-    it('toggle_privacy_mode calls sendPrivacyMode', () => {
-      setByName('toggle_privacy_mode', JSON.stringify({ on: true }));
-      expect(mockSession.sendPrivacyMode).toHaveBeenCalledWith(true);
+    it('toggle_privacy_mode calls sendPrivacyMode with impl_key', () => {
+      setByName('toggle_privacy_mode', JSON.stringify({ on: true, impl_key: 'test-impl' }));
+      expect(mockSession.sendPrivacyMode).toHaveBeenCalledWith(true, 'test-impl');
+    });
+
+    it('toggle_privacy_mode defaults impl_key to empty string', () => {
+      setByName('toggle_privacy_mode', JSON.stringify({ on: false }));
+      expect(mockSession.sendPrivacyMode).toHaveBeenCalledWith(false, '');
     });
   });
 
@@ -783,27 +836,53 @@ describe('dispatcher', () => {
       clearMockCalls();
     });
 
-    it('sends control key for USB HID code', () => {
+    it('sends control key for USB HID code with Translate mode', () => {
       // 0x28 = Enter → Return (27)
       setByName('flutter_key_event', JSON.stringify({ name: '', usb_hid: 0x28, lock_modes: 0, down: 'true' }));
       expect(mockSession.sendKey).toHaveBeenCalledWith({
-        down: true, controlKey: 27, modifiers: [],
+        down: true, controlKey: 27, modifiers: [], mode: 1,
       });
     });
 
-    it('sends character code for single-char name', () => {
+    it('sends character code for single-char name with Translate mode', () => {
       setByName('flutter_key_event', JSON.stringify({ name: 'a', usb_hid: 0x04, lock_modes: 0, down: 'true' }));
       expect(mockSession.sendKey).toHaveBeenCalledWith({
-        down: true, chr: 97, modifiers: [],
+        down: true, chr: 97, modifiers: [], mode: 1,
       });
     });
 
-    it('parses lock_modes for CapsLock modifier', () => {
-      // lock_modes bit 1 = CapsLock (3)
+    it('parses lock_modes for CapsLock modifier on letter keys only', () => {
+      // lock_modes bit 1 = CapsLock (3), usb_hid 0x04 = 'a' (letter key)
       setByName('flutter_key_event', JSON.stringify({ name: 'a', usb_hid: 0x04, lock_modes: 2, down: 'true' }));
       expect(mockSession.sendKey).toHaveBeenCalledWith({
-        down: true, chr: 97, modifiers: [3],
+        down: true, chr: 97, modifiers: [3], mode: 1,
       });
+    });
+
+    it('does not add CapsLock for non-letter keys', () => {
+      // 0x28 = Enter, not a letter key — CapsLock should not be added
+      setByName('flutter_key_event', JSON.stringify({ name: '', usb_hid: 0x28, lock_modes: 2, down: 'true' }));
+      expect(mockSession.sendKey).toHaveBeenCalledWith({
+        down: true, controlKey: 27, modifiers: [], mode: 1,
+      });
+    });
+
+    it('parses lock_modes for NumLock on numpad keys only', () => {
+      // lock_modes bit 2 = NumLock (63), usb_hid 0x59 = Numpad 1
+      setByName('flutter_key_event', JSON.stringify({ name: '', usb_hid: 0x59, lock_modes: 4, down: 'true' }));
+      expect(mockSession.sendKey).toHaveBeenCalledWith({
+        down: true, controlKey: 34, modifiers: [63], mode: 1,
+      });
+    });
+
+    it('tracks modifier state from Ctrl key press', () => {
+      // Press Left Ctrl (0xE0)
+      setByName('flutter_key_event', JSON.stringify({ name: '', usb_hid: 0xE0, lock_modes: 0, down: 'true' }));
+      // Press 'a' — should include Ctrl modifier (4)
+      setByName('flutter_key_event', JSON.stringify({ name: 'a', usb_hid: 0x04, lock_modes: 0, down: 'true' }));
+      const lastCall = mockSession.sendKey.mock.calls[mockSession.sendKey.mock.calls.length - 1][0];
+      expect(lastCall.modifiers).toContain(4);
+      expect(lastCall.mode).toBe(1);
     });
   });
 

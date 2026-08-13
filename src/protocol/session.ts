@@ -16,6 +16,19 @@ import {
 import { ConnType, rendezvousWsUrl, relayWsUrl, type SessionConfig, type ServerConfig, CodecPreference, ImageQuality } from './config';
 import { detectCodecAbilities } from '../media/renderer';
 
+/** Compare two semver-like version strings. Returns -1, 0, or 1. */
+function compareVersion(a: string, b: string): number {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const va = pa[i] ?? 0;
+    const vb = pb[i] ?? 0;
+    if (va < vb) return -1;
+    if (va > vb) return 1;
+  }
+  return 0;
+}
+
 export type SessionState =
   | 'idle'
   | 'connecting-rendezvous'
@@ -78,6 +91,9 @@ export interface SessionOptionMessage {
   followRemoteWindow?: BoolOption;
   showMyCursor?: BoolOption;
   supportedDecoding?: Record<string, unknown>;
+  blockInput?: BoolOption;
+  enableFileTransfer?: BoolOption;
+  terminalPersistent?: BoolOption;
 }
 
 export interface SessionEvents {
@@ -154,6 +170,7 @@ export class RemoteSession {
   private codecAbilities: { vp8: boolean; vp9: boolean; av1: boolean; h264: boolean; h265: boolean } | null = null;
   private initialOptions: SessionOptionMessage = {};
   private pendingHash: HashT | null = null;
+  private peerVersion: string = '';
 
   constructor(config: SessionConfig) {
     this.config = config;
@@ -423,6 +440,7 @@ export class RemoteSession {
     }
 
     if (resp.loginResponse.peerInfo) {
+      this.peerVersion = resp.loginResponse.peerInfo.version ?? '';
       this.emit('peerInfo', resp.loginResponse.peerInfo);
       this.setState('connected');
       this.log('connected');
@@ -439,6 +457,7 @@ export class RemoteSession {
       const resp = await this.nextMessage(15000);
       if (resp.loginResponse?.error) throw new Error(`2fa failed: ${resp.loginResponse.error}`);
       if (resp.loginResponse?.peerInfo) {
+        this.peerVersion = resp.loginResponse.peerInfo.version ?? '';
         this.emit('peerInfo', resp.loginResponse.peerInfo);
         this.setState('connected');
         this.log('connected after 2fa');
@@ -523,8 +542,24 @@ export class RemoteSession {
 
   sendRefresh(): void {
     if (this.state !== 'connected') return;
-    const msg: MessageT = { misc: { refresh_video: true } };
+    if (this.supportsMultiUiSession()) {
+      const msg: MessageT = { misc: { refreshVideoDisplay: 0 } };
+      this.relayStream?.send(encodeMessage(msg));
+    } else {
+      const msg: MessageT = { misc: { refresh_video: true } };
+      this.relayStream?.send(encodeMessage(msg));
+    }
+  }
+
+  sendRefreshDisplay(display: number): void {
+    if (this.state !== 'connected') return;
+    const msg: MessageT = { misc: { refreshVideoDisplay: display } };
     this.relayStream?.send(encodeMessage(msg));
+  }
+
+  /** Check if peer version supports multi-ui-session (>= 1.2.4). */
+  private supportsMultiUiSession(): boolean {
+    return compareVersion(this.peerVersion, '1.2.4') >= 0;
   }
 
   async sendLoginWithPassword(password: string, _osUsername?: string, _osPassword?: string): Promise<void> {
@@ -584,6 +619,7 @@ export class RemoteSession {
         return;
       }
       if (resp.loginResponse.peerInfo) {
+        this.peerVersion = resp.loginResponse.peerInfo.version ?? '';
         this.emit('peerInfo', resp.loginResponse.peerInfo);
         this.setState('connected');
         this.log('connected');
@@ -649,13 +685,13 @@ export class RemoteSession {
     return this.codecAbilities;
   }
 
-  sendPrivacyMode(enabled: boolean): void {
+  sendPrivacyMode(enabled: boolean, implKey: string = ''): void {
     if (this.state !== 'connected') return;
     const msg: MessageT = {
-      misc: { togglePrivacyMode: { implKey: '', on: enabled } },
+      misc: { togglePrivacyMode: { implKey, on: enabled } },
     };
     this.relayStream?.send(encodeMessage(msg));
-    this.log(`privacy mode toggle: ${enabled ? 'on' : 'off'}`);
+    this.log(`privacy mode toggle: ${enabled ? 'on' : 'off'} (implKey=${implKey})`);
   }
 
   sendBlockInput(enabled: boolean): void {
