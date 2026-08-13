@@ -178,6 +178,24 @@ const USB_HID_TO_CONTROL_KEY: Record<number, number> = {
   0x66: 79,  // Power
 };
 
+/** Tracks active modifier keys for flutter_key_event (Bug 8). */
+const modifierState = { ctrl: false, alt: false, shift: false, meta: false };
+
+/** USB HID ranges for conditional lock_modes (Bug 13). */
+const LETTER_HID_MIN = 0x04; // a
+const LETTER_HID_MAX = 0x1D; // z
+const NUMPAD_HIDS = new Set([0x54, 0x55, 0x56, 0x57, 0x59, 0x5A, 0x5B, 0x5C, 0x5D, 0x5E, 0x5F, 0x60, 0x61, 0x62, 0x63]);
+
+/** Update modifier tracking state from a flutter_key_event. */
+function updateModifierState(usbHid: number, down: boolean): void {
+  switch (usbHid) {
+    case 0xE0: case 0xE4: modifierState.ctrl = down; break;
+    case 0xE1: case 0xE5: modifierState.shift = down; break;
+    case 0xE2: case 0xE6: modifierState.alt = down; break;
+    case 0xE3: case 0xE7: modifierState.meta = down; break;
+  }
+}
+
 function parseJson<T>(value: string): T | null {
   if (!value) return null;
   try {
@@ -417,20 +435,26 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
       const payload = parseJson<FlutterKeyEventPayload>(value);
       if (!payload) return;
       const down = truthy(payload.down);
+      updateModifierState(payload.usb_hid, down);
       const modifiers: number[] = [];
-      // lock_modes bitmask: bit 1 = CapsLock, bit 2 = NumLock
-      if (payload.lock_modes & (1 << 1)) modifiers.push(3);  // CapsLock
-      if (payload.lock_modes & (1 << 2)) modifiers.push(63); // NumLock
+      if (modifierState.alt) modifiers.push(1);
+      if (modifierState.ctrl) modifiers.push(4);
+      if (modifierState.shift) modifiers.push(29);
+      if (modifierState.meta) modifiers.push(23);
+      const isLetter = payload.usb_hid >= LETTER_HID_MIN && payload.usb_hid <= LETTER_HID_MAX;
+      const isNumpad = NUMPAD_HIDS.has(payload.usb_hid);
+      if (isLetter && (payload.lock_modes & (1 << 1))) modifiers.push(3);  // CapsLock
+      if (isNumpad && (payload.lock_modes & (1 << 2))) modifiers.push(63); // NumLock
+      const mode = 1; // KeyboardMode.Translate
       const ck = USB_HID_TO_CONTROL_KEY[payload.usb_hid];
       if (ck !== undefined) {
-        session.sendKey({ down, controlKey: ck, modifiers });
+        session.sendKey({ down, controlKey: ck, modifiers, mode });
       } else if (payload.name && payload.name.length === 1) {
-        session.sendKey({ down, chr: payload.name.charCodeAt(0), modifiers });
+        session.sendKey({ down, chr: payload.name.charCodeAt(0), modifiers, mode });
       } else if (payload.name && payload.name.length > 1) {
-        // Multi-character name (e.g. "flutter_key" for media keys) — try as unicode
         const code = payload.name.codePointAt(0);
         if (code !== undefined) {
-          session.sendKey({ down, unicode: code, modifiers });
+          session.sendKey({ down, unicode: code, modifiers, mode });
         }
       }
     },
@@ -560,10 +584,16 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
     // ---- options ----
     'option:toggle': (value: string) => {
       const session = ctx.getSession();
-      ctx.setToggleOption(value, !ctx.getToggleOption(value));
+      // privacy-mode and block-input/unblock-input: don't update local state
+      // immediately; wait for peer confirmation (matches native client.rs).
+      const skipLocalUpdate = value === 'privacy-mode' || value.includes('block-input');
+      if (!skipLocalUpdate) {
+        ctx.setToggleOption(value, !ctx.getToggleOption(value));
+      }
       // Mirror the toggle into the session option message so the peer is notified.
       if (session) {
-        const opt = toggleToOptionMessage(value, ctx.getToggleOption(value));
+        const toggled = skipLocalUpdate ? !ctx.getToggleOption(value) : ctx.getToggleOption(value);
+        const opt = toggleToOptionMessage(value, toggled);
         if (opt) session.sendOption(opt);
       }
     },
@@ -859,8 +889,8 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
     toggle_privacy_mode: (value: string) => {
       const session = ctx.getSession();
       if (!session) return;
-      const payload = parseJson<{ on?: boolean }>(value);
-      session.sendPrivacyMode(!!payload?.on);
+      const payload = parseJson<{ on?: boolean; impl_key?: string }>(value);
+      session.sendPrivacyMode(!!payload?.on, payload?.impl_key ?? '');
     },
 
     // ---- env var ----
@@ -1046,6 +1076,14 @@ function toggleToOptionMessage(name: string, enabled: boolean): SessionOptionMes
     case 'show-my-cursor': return { showMyCursor: value };
     case 'view-only':
       return { disableKeyboard: value, disableClipboard: value };
+    case 'enable-file-copy-paste':
+      return { enableFileTransfer: value };
+    case 'terminal-persistent':
+      return { terminalPersistent: value };
+    case 'block-input':
+      return { blockInput: BoolOption.Yes };
+    case 'unblock-input':
+      return { blockInput: BoolOption.No };
     default: return null;
   }
 }
