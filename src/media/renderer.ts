@@ -250,6 +250,7 @@ export class VideoRenderer {
   private fpsLastTs = Date.now();
   private fps = 0;
   private onStats?: (stats: RenderStats) => void;
+  private statsIntervalId: ReturnType<typeof setInterval> | null = null;
   /** Display index this renderer is responsible for (passed to onDecodedFrame). */
   private displayIndex = 0;
   /**
@@ -268,7 +269,7 @@ export class VideoRenderer {
     this.ctx = canvas.getContext('2d', { alpha: false });
     this.onStats = onStats;
     if (onStats) {
-      setInterval(() => this.reportStats(), 500);
+      this.statsIntervalId = setInterval(() => this.reportStats(), 500);
     }
   }
 
@@ -530,6 +531,10 @@ export class VideoRenderer {
   }
 
   destroy(): void {
+    if (this.statsIntervalId !== null) {
+      clearInterval(this.statsIntervalId);
+      this.statsIntervalId = null;
+    }
     for (const d of this.decoders.values()) {
       try {
         d.close();

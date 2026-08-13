@@ -67,6 +67,17 @@ export enum BoolOption {
   Yes = 2,
 }
 
+const PERMISSION_NAMES: Record<number, string> = {
+  0: 'keyboard',
+  2: 'clipboard',
+  3: 'audio',
+  4: 'file',
+  5: 'restart',
+  6: 'recording',
+  7: 'block_input',
+  8: 'privacy_mode',
+};
+
 export interface PrivacyModeNotification {
   state: PrivacyModeState;
   details?: string;
@@ -113,6 +124,12 @@ export interface SessionEvents {
   elevationResponse: (response: string) => void;
   privacyModeState: (notification: PrivacyModeNotification) => void;
   blockInputState: (notification: BlockInputNotification) => void;
+  permissionInfo: (info: { permission: string; enabled: boolean }) => void;
+  uac: (uac: boolean) => void;
+  foregroundWindowElevated: (elevated: boolean) => void;
+  miscOption: (option: Record<string, unknown>) => void;
+  supportedEncoding: (encoding: Record<string, unknown>) => void;
+  followCurrentDisplay: (display: number) => void;
   need2fa: () => void;
   closeReason: (reason: string) => void;
   error: (error: Error) => void;
@@ -550,7 +567,7 @@ export class RemoteSession {
       const msg: MessageT = { misc: { refreshVideoDisplay: 0 } };
       this.relayStream?.send(encodeMessage(msg));
     } else {
-      const msg: MessageT = { misc: { refresh_video: true } };
+      const msg: MessageT = { misc: { refreshVideo: true } };
       this.relayStream?.send(encodeMessage(msg));
     }
   }
@@ -649,7 +666,7 @@ export class RemoteSession {
   sendElevationRequest(direct: boolean): void {
     if (this.state !== 'connected') return;
     const msg: MessageT = {
-      misc: { elevation_request: { direct } },
+      misc: { elevationRequest: { direct } },
     };
     this.relayStream?.send(encodeMessage(msg));
     this.log(`elevation request sent (direct=${direct})`);
@@ -658,7 +675,7 @@ export class RemoteSession {
   sendElevationWithLogon(username: string, password: string): void {
     if (this.state !== 'connected') return;
     const msg: MessageT = {
-      misc: { elevation_request: { logon: { username, password } } },
+      misc: { elevationRequest: { logon: { username, password } } },
     };
     this.relayStream?.send(encodeMessage(msg));
     this.log('elevation request sent (with logon)');
@@ -774,8 +791,30 @@ export class RemoteSession {
       }
       this.log(`back notification received: privacyModeState=${bn.privacyModeState ?? 'n/a'} blockInputState=${bn.blockInputState ?? 'n/a'}`);
     }
-    if (misc.elevation_response !== undefined) {
-      this.emit('elevationResponse', misc.elevation_response as string);
+    if (misc.permissionInfo) {
+      const pi = misc.permissionInfo as { permission?: number; enabled?: boolean };
+      const permName = PERMISSION_NAMES[pi.permission ?? -1];
+      if (permName) {
+        this.emit('permissionInfo', { permission: permName, enabled: !!pi.enabled });
+      }
+    }
+    if (misc.uac !== undefined && misc.uac !== null) {
+      this.emit('uac', misc.uac as boolean);
+    }
+    if (misc.foregroundWindowElevated !== undefined && misc.foregroundWindowElevated !== null) {
+      this.emit('foregroundWindowElevated', misc.foregroundWindowElevated as boolean);
+    }
+    if (misc.option) {
+      this.emit('miscOption', misc.option as Record<string, unknown>);
+    }
+    if (misc.supportedEncoding) {
+      this.emit('supportedEncoding', misc.supportedEncoding as Record<string, unknown>);
+    }
+    if (misc.followCurrentDisplay !== undefined && misc.followCurrentDisplay !== null) {
+      this.emit('followCurrentDisplay', misc.followCurrentDisplay as number);
+    }
+    if (misc.elevationResponse !== undefined) {
+      this.emit('elevationResponse', misc.elevationResponse as string);
     }
   }
 
