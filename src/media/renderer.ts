@@ -71,6 +71,9 @@ export interface RenderStats {
 
 type EncodedFrame = { data: Uint8Array; key?: boolean; pts?: number | { low: number; high: number } };
 
+type RgbFrame = { compress?: boolean; data?: Uint8Array; w?: number; h?: number };
+type YuvFrame = { compress?: boolean; stride?: number; data?: Uint8Array; w?: number; h?: number };
+
 function ptsToNumber(pts: EncodedFrame['pts']): number {
   if (pts === undefined || pts === null) return 0;
   if (typeof pts === 'number') return pts;
@@ -235,6 +238,7 @@ function extractH265Description(data: Uint8Array): Uint8Array | null {
 export class VideoRenderer {
   private decoders: Map<string, VideoDecoder> = new Map();
   private seenKeyFrame: Set<string> = new Set();
+  private configuredCodecs: Set<string> = new Set();
   private ctx: CanvasRenderingContext2D | null = null;
   private displayWidth = 0;
   private displayHeight = 0;
@@ -282,13 +286,19 @@ export class VideoRenderer {
   }
 
   handleFrame(vf: VideoFrameT): void {
-    if (vf.rgb || vf.yuv) {
+    if (vf.rgb) {
+      this.drawRgb(vf.rgb as RgbFrame);
+      return;
+    }
+    if (vf.yuv) {
+      this.drawYuv(vf.yuv as YuvFrame);
       return;
     }
     const info = framesOf(vf);
     if (!info) return;
     this.activeCodec = info.codec;
-    const decoder = this.getDecoder(info.codec, info.frames[0]?.data);
+    const keyFrame = info.frames.find((f) => f.key);
+    const decoder = this.getDecoder(info.codec, keyFrame?.data);
     if (!decoder) return;
 
     for (const f of info.frames) {
@@ -321,20 +331,41 @@ export class VideoRenderer {
     }
   }
 
-  private getDecoder(codec: string, firstFrameData?: Uint8Array): VideoDecoder | null {
+  private getDecoder(codec: string, keyFrameData?: Uint8Array): VideoDecoder | null {
     let decoder = this.decoders.get(codec);
-    if (decoder) return decoder;
+    if (decoder && decoder.state === 'configured') {
+      if ((codec === 'h264' || codec === 'h265') && !this.configuredCodecs.has(codec) && keyFrameData) {
+        const desc = codec === 'h264'
+          ? extractH264Description(keyFrameData)
+          : extractH265Description(keyFrameData);
+        if (desc) {
+          try {
+            decoder.configure({ ...CODEC_CONFIG[codec], description: desc });
+            this.configuredCodecs.add(codec);
+          } catch (err) {
+            this.onError?.(err instanceof Error ? err : new Error(String(err)));
+          }
+        }
+      }
+      return decoder;
+    }
     if (typeof VideoDecoder === 'undefined') {
       this.onError?.(new Error('WebCodecs VideoDecoder not available in this browser'));
       return null;
     }
     const config = { ...CODEC_CONFIG[codec] };
-    if (codec === 'h264' && firstFrameData) {
-      const desc = extractH264Description(firstFrameData);
-      if (desc) (config as VideoDecoderConfig).description = desc;
-    } else if (codec === 'h265' && firstFrameData) {
-      const desc = extractH265Description(firstFrameData);
-      if (desc) (config as VideoDecoderConfig).description = desc;
+    if (codec === 'h264' && keyFrameData) {
+      const desc = extractH264Description(keyFrameData);
+      if (desc) {
+        (config as VideoDecoderConfig).description = desc;
+        this.configuredCodecs.add(codec);
+      }
+    } else if (codec === 'h265' && keyFrameData) {
+      const desc = extractH265Description(keyFrameData);
+      if (desc) {
+        (config as VideoDecoderConfig).description = desc;
+        this.configuredCodecs.add(codec);
+      }
     }
     decoder = new VideoDecoder({
       output: (frame: VideoFrame) => {
@@ -354,7 +385,12 @@ export class VideoRenderer {
         }
         this.pendingFrames = Math.max(0, this.pendingFrames - 1);
       },
-      error: (e: DOMException) => this.onError?.(new Error(`decoder(${codec}): ${e.message}`)),
+      error: (e: DOMException) => {
+        this.onError?.(new Error(`decoder(${codec}): ${e.message}`));
+        this.decoders.delete(codec);
+        this.seenKeyFrame.delete(codec);
+        this.configuredCodecs.delete(codec);
+      },
     });
     try {
       decoder.configure(config);
@@ -372,6 +408,86 @@ export class VideoRenderer {
       this.setDisplaySize(frame.displayWidth, frame.displayHeight);
     }
     this.ctx.drawImage(frame, 0, 0, this.displayWidth, this.displayHeight);
+    this.fpsFrames++;
+    this.decodedCount++;
+  }
+
+  private drawRgb(rgb: RgbFrame): void {
+    if (!rgb.data || !rgb.w || !rgb.h) return;
+    const w = rgb.w;
+    const h = rgb.h;
+    if (w !== this.displayWidth || h !== this.displayHeight) {
+      this.setDisplaySize(w, h);
+    }
+    if (this.onDecodedFrame) {
+      const frame = new VideoFrame(rgb.data, {
+        format: 'RGBA',
+        codedWidth: w,
+        codedHeight: h,
+        timestamp: 0,
+      });
+      try {
+        this.onDecodedFrame(this.displayIndex, frame);
+      } catch (err) {
+        this.onError?.(err instanceof Error ? err : new Error(String(err)));
+        try { frame.close(); } catch { /* ignore */ }
+      }
+    } else if (this.ctx) {
+      const imgData = new ImageData(new Uint8ClampedArray(rgb.data), w, h);
+      this.ctx.putImageData(imgData, 0, 0);
+    }
+    this.fpsFrames++;
+    this.decodedCount++;
+  }
+
+  private drawYuv(yuv: YuvFrame): void {
+    if (!yuv.data || !yuv.w || !yuv.h) return;
+    const w = yuv.w;
+    const h = yuv.h;
+    const yStride = yuv.stride || w;
+    const uvStride = yStride >> 1;
+    const ySize = yStride * h;
+    const uvSize = uvStride * (h >> 1);
+    if (yuv.data.length < ySize + 2 * uvSize) return;
+    const rgba = new Uint8ClampedArray(w * h * 4);
+    const yPlane = yuv.data;
+    const uPlane = yuv.data.subarray(ySize);
+    const vPlane = yuv.data.subarray(ySize + uvSize);
+    for (let j = 0; j < h; j++) {
+      for (let i = 0; i < w; i++) {
+        const y = yPlane[j * yStride + i];
+        const u = uPlane[(j >> 1) * uvStride + (i >> 1)] - 128;
+        const v = vPlane[(j >> 1) * uvStride + (i >> 1)] - 128;
+        const r = y + 1.402 * v;
+        const g = y - 0.344 * u - 0.714 * v;
+        const b = y + 1.772 * u;
+        const idx = (j * w + i) * 4;
+        rgba[idx] = r < 0 ? 0 : r > 255 ? 255 : r;
+        rgba[idx + 1] = g < 0 ? 0 : g > 255 ? 255 : g;
+        rgba[idx + 2] = b < 0 ? 0 : b > 255 ? 255 : b;
+        rgba[idx + 3] = 255;
+      }
+    }
+    if (w !== this.displayWidth || h !== this.displayHeight) {
+      this.setDisplaySize(w, h);
+    }
+    if (this.onDecodedFrame) {
+      const frame = new VideoFrame(rgba, {
+        format: 'RGBA',
+        codedWidth: w,
+        codedHeight: h,
+        timestamp: 0,
+      });
+      try {
+        this.onDecodedFrame(this.displayIndex, frame);
+      } catch (err) {
+        this.onError?.(err instanceof Error ? err : new Error(String(err)));
+        try { frame.close(); } catch { /* ignore */ }
+      }
+    } else if (this.ctx) {
+      const imgData = new ImageData(rgba, w, h);
+      this.ctx.putImageData(imgData, 0, 0);
+    }
     this.fpsFrames++;
     this.decodedCount++;
   }
@@ -422,6 +538,8 @@ export class VideoRenderer {
       }
     }
     this.decoders.clear();
+    this.seenKeyFrame.clear();
+    this.configuredCodecs.clear();
     this.ctx = null;
   }
 }

@@ -5,6 +5,9 @@ export class AudioPlayer {
 
   private muted = false;
   private nextTime = 0;
+  private sampleRate = 0;
+  private samplesDecoded = 0;
+  private lastTimestamp = 0;
   private onError?: (error: Error) => void;
 
   constructor(onError?: (error: Error) => void) {
@@ -18,6 +21,11 @@ export class AudioPlayer {
       this.gainNode = this.ctx.createGain();
       this.gainNode.connect(this.ctx.destination);
       this.gainNode.gain.value = this.muted ? 0 : 1;
+    }
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume().catch((e) => {
+        this.onError?.(new Error(`AudioContext resume failed: ${e}`));
+      });
     }
 
     if (typeof AudioDecoder === 'undefined') {
@@ -50,6 +58,9 @@ export class AudioPlayer {
       sampleRate,
       numberOfChannels: channels,
     });
+    this.sampleRate = sampleRate;
+    this.samplesDecoded = 0;
+    this.lastTimestamp = 0;
     this.nextTime = this.ctx.currentTime;
     return true;
   }
@@ -91,6 +102,7 @@ export class AudioPlayer {
     if (this.nextTime < now) this.nextTime = now;
     src.start(this.nextTime);
     this.nextTime += frames / data.sampleRate;
+    this.samplesDecoded += frames;
     data.close();
   }
 
@@ -122,8 +134,13 @@ export class AudioPlayer {
 
   handleFrame(data: Uint8Array): void {
     if (!this.decoder || this.decoder.state !== 'configured') return;
+    let timestamp = this.sampleRate > 0
+      ? Math.round((this.samplesDecoded / this.sampleRate) * 1_000_000)
+      : 0;
+    if (timestamp <= this.lastTimestamp) timestamp = this.lastTimestamp + 1;
+    this.lastTimestamp = timestamp;
     try {
-      this.decoder.decode(new EncodedAudioChunk({ type: 'key', data, timestamp: 0 }));
+      this.decoder.decode(new EncodedAudioChunk({ type: 'key', data, timestamp }));
     } catch (err) {
       this.onError?.(err instanceof Error ? err : new Error(String(err)));
     }
