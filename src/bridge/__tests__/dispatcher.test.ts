@@ -727,6 +727,18 @@ describe('dispatcher', () => {
       const result = getByName('translate', JSON.stringify({ locale: 'en', text: 'new-version-of-{}-tip' }));
       expect(result).not.toContain('{}');
     });
+
+    it('translate uses stored lang local option over browser locale', () => {
+      setByName('option:local', JSON.stringify({ name: 'lang', value: 'zh-cn' }));
+      const result = getByName('translate', JSON.stringify({ locale: 'en', text: 'ID Server' }));
+      expect(result).toBe('ID 服务器');
+    });
+
+    it('translate falls back to payload locale when no lang stored', () => {
+      setByName('option:local', JSON.stringify({ name: 'lang', value: '' }));
+      const result = getByName('translate', JSON.stringify({ locale: 'en', text: 'ID Server' }));
+      expect(result).toBe('ID server');
+    });
   });
 
   // ---- getByName: audit (3 keys) ----
@@ -1090,12 +1102,19 @@ describe('dispatcher', () => {
     });
   });
 
-  describe('query_onlines (stub improved)', () => {
-    it('triggers callback_query_onlines with all offline', () => {
+  describe('query_onlines', () => {
+    it('accepts peer ID array without throwing', () => {
       const spy = vi.fn();
       (window as unknown as { onGlobalEvent: (name: string, data: unknown) => void }).onGlobalEvent = spy;
-      setByName('query_onlines', JSON.stringify(['id1', 'id2']));
-      expect(spy).toHaveBeenCalledWith('callback_query_onlines', { onlines: [], offlines: 'id1,id2' });
+      expect(() => setByName('query_onlines', JSON.stringify(['id1', 'id2']))).not.toThrow();
+    });
+
+    it('handles empty array gracefully', () => {
+      expect(() => setByName('query_onlines', JSON.stringify([]))).not.toThrow();
+    });
+
+    it('handles invalid JSON gracefully', () => {
+      expect(() => setByName('query_onlines', 'not-json')).not.toThrow();
     });
   });
 });

@@ -72,6 +72,28 @@ describe('BridgeContext', () => {
     });
   });
 
+  describe('server config auto-load', () => {
+    it('loadServerFromOptions restores server config from localStorage', () => {
+      ctx.setOption('custom-rendezvous-server', 'my-server.example.com');
+      ctx.setOption('relay-server', 'my-relay.example.com');
+      ctx.setOption('api-server', 'https://my-api.example.com');
+      ctx.setOption('key', 'my-key=');
+      ctx.loadServerFromOptions();
+      const s = ctx.getServer();
+      expect(s.rendezvousHost).toBe('my-server.example.com');
+      expect(s.relayHost).toBe('my-relay.example.com');
+      expect(s.apiHost).toBe('https://my-api.example.com');
+      expect(s.key).toBe('my-key=');
+      expect(s.useWss).toBe(true);
+    });
+
+    it('loadServerFromOptions does not override when options empty', () => {
+      const before = ctx.getServer();
+      ctx.loadServerFromOptions();
+      expect(ctx.getServer()).toEqual(before);
+    });
+  });
+
   describe('toggle options', () => {
     it('setToggleOption / getToggleOption round-trips', () => {
       ctx.setToggleOption('show-remote-cursor', true);
