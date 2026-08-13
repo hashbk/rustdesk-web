@@ -108,6 +108,7 @@ export type DisplayInfoT = {
   online?: boolean;
   cursorEmbedded?: boolean;
   scale?: number;
+  originalResolution?: { width?: number; height?: number };
 };
 
 export type PeerInfoT = {
@@ -120,6 +121,8 @@ export type PeerInfoT = {
   version?: string;
   features?: { privacyMode?: boolean; terminal?: boolean };
   encoding?: { h264?: boolean; h265?: boolean; vp8?: boolean; av1?: boolean };
+  resolutions?: { width?: number; height?: number }[];
+  platformAdditions?: string;
 };
 
 export type HashT = { salt: string; challenge: string };

@@ -46,6 +46,7 @@ function makeMockSession(): { session: RemoteSession; listeners: Map<string, (..
     on(event: string, listener: (...args: unknown[]) => void) {
       listeners.set(event, listener);
     },
+    isSecured() { return true; },
   } as unknown as RemoteSession;
   return { session, listeners };
 }
@@ -231,6 +232,41 @@ describe('events', () => {
       expect(events[0].platform).toBe('Linux');
       expect(events[0].sas_enabled).toBe('true');
       expect(events[0].current_display).toBe('0');
+    });
+
+    it('emits peer_info with resolutions and platform_additions', () => {
+      const info: PeerInfoT = {
+        username: 'user',
+        hostname: 'host',
+        platform: 'Windows',
+        displays: [{ width: 1920, height: 1080 }],
+        currentDisplay: 0,
+        version: '1.3.0',
+        resolutions: [{ width: 1920, height: 1080 }, { width: 1280, height: 720 }],
+        platformAdditions: 'some-additions',
+      };
+      listeners.get('peerInfo')!(info);
+      expect(events[0].resolutions).toBe(JSON.stringify([{ width: 1920, height: 1080 }, { width: 1280, height: 720 }]));
+      expect(events[0].platform_additions).toBe('some-additions');
+    });
+
+    it('emits peer_info with display original_width/height and scaled_width', () => {
+      const info: PeerInfoT = {
+        username: 'user',
+        hostname: 'host',
+        platform: 'macOS',
+        displays: [{
+          width: 3840, height: 2160, scale: 2.0,
+          originalResolution: { width: 3840, height: 2160 },
+        }],
+        currentDisplay: 0,
+        version: '1.3.0',
+      };
+      listeners.get('peerInfo')!(info);
+      const displays = JSON.parse(events[0].displays as string);
+      expect(displays[0].original_width).toBe(3840);
+      expect(displays[0].original_height).toBe(2160);
+      expect(displays[0].scaled_width).toBe(1920);
     });
 
     // -- cursor_data --
@@ -431,8 +467,13 @@ describe('events', () => {
 
     // -- update_quality_status (latency) --
     it('emits update_quality_status for latency', () => {
-      listeners.get('latency')!(42);
+      listeners.get('latency')!({ delay: 42 });
       expect(events[0]).toMatchObject({ name: 'update_quality_status', delay: '42' });
+    });
+
+    it('emits target_bitrate from latency event', () => {
+      listeners.get('latency')!({ delay: 10, targetBitrate: 5000000 });
+      expect(events[0]).toMatchObject({ name: 'update_quality_status', target_bitrate: '5000000' });
     });
 
     // -- closeReason → closeConnection --

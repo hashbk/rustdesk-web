@@ -60,15 +60,28 @@ function textDecode(bytes: Uint8Array): string {
 
 /** Flatten a PeerInfo into the fields expected by the `peer_info` event. */
 function flattenPeerInfo(info: PeerInfoT): Record<string, unknown> {
-  const displays = (info.displays ?? []).map((d) => ({
-    x: d.x ?? 0,
-    y: d.y ?? 0,
-    width: d.width,
-    height: d.height,
-    name: d.name ?? '',
-    online: d.online ?? true,
-    cursor_embedded: d.cursorEmbedded ?? false,
-    scale: d.scale ?? 1,
+  const displays = (info.displays ?? []).map((d) => {
+    const entry: Record<string, unknown> = {
+      x: d.x ?? 0,
+      y: d.y ?? 0,
+      width: d.width,
+      height: d.height,
+      name: d.name ?? '',
+      online: d.online ?? true,
+      cursor_embedded: d.cursorEmbedded ?? false,
+      scale: d.scale ?? 1,
+    };
+    if (d.originalResolution) {
+      entry.original_width = d.originalResolution.width ?? 0;
+      entry.original_height = d.originalResolution.height ?? 0;
+    }
+    if (d.scale && d.scale > 0) {
+      entry.scaled_width = Math.round(d.width / d.scale);
+    }
+    return entry;
+  });
+  const resolutions = (info.resolutions ?? []).map((r) => ({
+    width: r.width ?? 0, height: r.height ?? 0,
   }));
   return {
     username: info.username ?? '',
@@ -82,6 +95,8 @@ function flattenPeerInfo(info: PeerInfoT): Record<string, unknown> {
       terminal: info.features?.terminal ?? false,
     }),
     current_display: String(info.currentDisplay ?? 0),
+    resolutions: JSON.stringify(resolutions),
+    platform_additions: info.platformAdditions ?? '',
   };
 }
 
@@ -270,7 +285,7 @@ export function attachSessionCallbacks(session: RemoteSession, display: number):
     if (state === 'connected') {
       emitGlobalEvent({
         name: 'connection_ready',
-        secure: 'true',
+        secure: String(session.isSecured()),
         direct: 'false',
         stream_type: '',
       });
@@ -279,13 +294,13 @@ export function attachSessionCallbacks(session: RemoteSession, display: number):
     }
   });
 
-  session.on('latency', (ms: number) => {
+  session.on('latency', (info: { delay: number; targetBitrate?: number }) => {
     emitGlobalEvent({
       name: 'update_quality_status',
       speed: '',
       fps: '0',
-      delay: String(ms),
-      target_bitrate: '',
+      delay: String(info.delay),
+      target_bitrate: info.targetBitrate !== undefined ? String(info.targetBitrate) : '',
       codec_format: '',
       chroma: '',
     });

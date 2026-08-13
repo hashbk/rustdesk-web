@@ -105,7 +105,7 @@ export interface SessionEvents {
   audioFormat: (fmt: NonNullable<MessageT['audioFormat']>) => void;
   audioFrame: (frame: NonNullable<MessageT['audioFrame']>) => void;
   clipboard: (clip: NonNullable<MessageT['clipboard']>) => void;
-  latency: (ms: number) => void;
+  latency: (info: { delay: number; targetBitrate?: number }) => void;
   messageBox: (box: NonNullable<MessageT['messageBox']>) => void;
   switchDisplay: (display: unknown) => void;
   fileResponse: (resp: NonNullable<MessageT['fileResponse']>) => void;
@@ -486,7 +486,10 @@ export class RemoteSession {
       else if (msg.testDelay) {
         if (!msg.testDelay.fromClient) {
           if (msg.testDelay.lastDelay !== undefined && msg.testDelay.lastDelay > 0) {
-            this.emit('latency', msg.testDelay.lastDelay);
+            this.emit('latency', {
+              delay: msg.testDelay.lastDelay,
+              targetBitrate: msg.testDelay.targetBitrate,
+            });
           }
           this.relayStream?.send(encodeMessage({ testDelay: msg.testDelay }));
         }
@@ -683,6 +686,10 @@ export class RemoteSession {
 
   getCodecAbilities() {
     return this.codecAbilities;
+  }
+
+  isSecured(): boolean {
+    return this.relayStream?.isSecured() ?? false;
   }
 
   sendPrivacyMode(enabled: boolean, implKey: string = ''): void {
