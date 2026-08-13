@@ -11,7 +11,7 @@ import { initCrypto } from '../protocol/crypto';
 import { detectCodecAbilities, type CodecAbilities } from '../media/renderer';
 import type { BridgeContext } from './context';
 import type { BridgeInitOptions } from './types';
-import { emitInitFinished } from './events';
+import { emitInitFinished, emitDialog } from './events';
 
 let initialized = false;
 let cachedAbilities: CodecAbilities | null = null;
@@ -28,7 +28,14 @@ export async function initBridge(
 ): Promise<void> {
   if (initialized) return;
 
-  await initCrypto();
+  try {
+    await initCrypto();
+  } catch (err) {
+    // Crypto init failure is fatal; notify Flutter via the dialog callback
+    // (web_model.dart:145 registers context['dialog'] for bridge-level errors).
+    emitDialog('error', 'Initialization failed', err instanceof Error ? err.message : String(err));
+    return;
+  }
 
   try {
     cachedAbilities = await detectCodecAbilities();

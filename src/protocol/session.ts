@@ -113,9 +113,11 @@ export interface SessionEvents {
   videoFrame: (frame: VideoFrameT) => void;
   cursorData: (cursor: NonNullable<MessageT['cursorData']>) => void;
   cursorPosition: (pos: NonNullable<MessageT['cursorPosition']>) => void;
+  cursorId: (id: number) => void;
   audioFormat: (fmt: NonNullable<MessageT['audioFormat']>) => void;
   audioFrame: (frame: NonNullable<MessageT['audioFrame']>) => void;
   clipboard: (clip: NonNullable<MessageT['clipboard']>) => void;
+  chatMessage: (msg: NonNullable<NonNullable<MessageT['misc']>['chatMessage']>) => void;
   latency: (info: { delay: number; targetBitrate?: number }) => void;
   messageBox: (box: NonNullable<MessageT['messageBox']>) => void;
   switchDisplay: (display: unknown) => void;
@@ -235,6 +237,7 @@ export class RemoteSession {
     });
     await this.rendezvousStream.connect();
 
+    const forceRelay = this.config.forceRelay ?? true;
     const req: RendezvousMessageT = {
       punchHoleRequest: {
         id: this.config.peerId,
@@ -243,11 +246,11 @@ export class RemoteSession {
         connType: this.config.connType ?? ConnType.DEFAULT_CONN,
         token: this.config.accessToken ?? '',
         version: CLIENT_VERSION,
-        forceRelay: true,
+        forceRelay,
       },
     };
     this.rendezvousStream.send(encodeRendezvous(req));
-    this.log('punch hole request sent (force_relay)');
+    this.log(`punch hole request sent (force_relay=${forceRelay})`);
 
     const relayInfo = await this.negotiateRelay(queue);
     this.rendezvousStream.close();
@@ -502,6 +505,10 @@ export class RemoteSession {
       if (msg.videoFrame) this.emit('videoFrame', msg.videoFrame);
       else if (msg.cursorData) this.emit('cursorData', msg.cursorData);
       else if (msg.cursorPosition) this.emit('cursorPosition', msg.cursorPosition);
+      else if (msg.cursorId !== undefined && msg.cursorId !== null) {
+        const id = typeof msg.cursorId === 'number' ? msg.cursorId : (msg.cursorId as { low: number; high: number }).low >>> 0;
+        this.emit('cursorId', id);
+      }
       else if (msg.audioFormat) this.emit('audioFormat', msg.audioFormat);
       else if (msg.audioFrame) this.emit('audioFrame', msg.audioFrame);
       else if (msg.clipboard) this.emit('clipboard', msg.clipboard);
@@ -819,6 +826,18 @@ export class RemoteSession {
     }
     if (misc.elevationResponse !== undefined) {
       this.emit('elevationResponse', misc.elevationResponse as string);
+    }
+    if (misc.chatMessage) {
+      this.emit('chatMessage', misc.chatMessage);
+    }
+    if (misc.portableServiceRunning !== undefined && misc.portableServiceRunning !== null) {
+      this.emit('miscOption', { portable_service_running: misc.portableServiceRunning });
+    }
+    if (misc.switchBack) {
+      this.emit('miscOption', { switch_back: true });
+    }
+    if (misc.clientRecordStatus !== undefined && misc.clientRecordStatus !== null) {
+      this.emit('miscOption', { record_status: misc.clientRecordStatus });
     }
   }
 

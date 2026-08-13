@@ -29,6 +29,7 @@ export {
   emitLoginDialog,
   emitCloseConnection,
   emitFullscreenChanged,
+  emitRegisteredEvent,
   resetGlobalEventCallback,
   getEventQueueLength,
   MAX_QUEUE,
@@ -60,14 +61,13 @@ function isMobile(): boolean {
  * so we combine arg2+arg3 into that shape when a third arg is present.
  */
 function wrapSetByName(
-  fn: (name: string, value?: string) => void,
-): (name: string, value?: string, extra?: string) => void {
+  fn: (name: string, value?: string) => string,
+): (name: string, value?: string, extra?: string) => string {
   return (name: string, value?: string, extra?: string) => {
     if (extra !== undefined && value !== undefined) {
-      fn(name, JSON.stringify({ name: value, value: extra }));
-    } else {
-      fn(name, value);
+      return fn(name, JSON.stringify({ name: value, value: extra }));
     }
+    return fn(name, value);
   };
 }
 
@@ -80,6 +80,10 @@ function wrapSetByName(
  * function to `window.onGlobalEvent`, we intercept the assignment via a
  * property setter and call `setGlobalEventCallback` so the bounded event
  * queue is flushed.
+ *
+ * Sets `window.rustdeskLocalFonts` to false by default (terminal_font.dart
+ * checks this to decide whether to use bundled local fonts).  Override by
+ * setting it in index.html before the bridge script loads.
  */
 export function installBridge(ctx: BridgeContext = defaultContext): void {
   const d = createDispatcher(ctx);
@@ -90,6 +94,9 @@ export function installBridge(ctx: BridgeContext = defaultContext): void {
     void initBridge(ctx, options);
   };
   w.isMobile = isMobile;
+  if (w.rustdeskLocalFonts === undefined) {
+    w.rustdeskLocalFonts = false;
+  }
   wireGlobalEventCallback();
 }
 
@@ -131,5 +138,8 @@ if (typeof window !== 'undefined') {
     void initBridge(defaultContext, options);
   };
   w.isMobile = isMobile;
+  if (w.rustdeskLocalFonts === undefined) {
+    w.rustdeskLocalFonts = false;
+  }
   wireGlobalEventCallback();
 }
