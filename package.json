@@ -9,13 +9,10 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit && vite build && vite build --config vite.bridge.config.ts",
-    "build:app": "npm run gen-translations && vite build",
+    "build": "tsc --noEmit && vite build --config vite.bridge.config.ts",
     "build:bridge": "npm run gen-translations && vite build --config vite.bridge.config.ts",
     "build:web": "bash scripts/build-web.sh",
     "dev:web": "bash scripts/dev-web.sh",
-    "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -27,24 +24,15 @@
     "prebuild": "npm run gen-translations"
   },
   "dependencies": {
-    "@xterm/addon-fit": "^0.11.0",
-    "@xterm/xterm": "^6.0.0",
     "fzstd": "^0.1.1",
     "protobufjs": "^7.4.0",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
     "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
     "@types/dom-webcodecs": "^0.1.11",
-    "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.4",
     "@typescript-eslint/eslint-plugin": "^8.15.0",
     "@typescript-eslint/parser": "^8.15.0",
-    "@vitejs/plugin-react": "^6.0.5",
     "eslint": "^9.15.0",
-    "eslint-plugin-react-hooks": "^5.0.0",
-    "eslint-plugin-react-refresh": "^0.4.14",
     "jsdom": "^30.0.1",
     "typescript": "^5.6.3",
     "vite": "^8.2.1",
