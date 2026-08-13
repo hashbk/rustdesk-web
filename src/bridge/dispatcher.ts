@@ -22,6 +22,7 @@ import { WsStream } from '../protocol/stream';
 import { BridgeContext } from './context';
 import { getCachedCodecAbilities } from './init';
 import { emitGlobalEvent } from './events';
+import { setTransferReadPath, clearTransferReadPath } from './callbacks';
 
 import { translate as translateText, langs as availableLangs } from './translations';
 import type {
@@ -284,9 +285,14 @@ function buildSessionConfig(ctx: BridgeContext, payload: SessionAddSyncPayload):
       key: server.key,
       useWss: server.useWss,
     },
-    forceRelay: !!payload.forceRelay,
+    forceRelay: payload.forceRelay,  // preserve undefined so session.ts ?? true applies (web always relays)
     switchUuid: payload.switchUuid,
     isSharedPassword: payload.is_shared_password,
+    remoteDir: payload.remoteDir,
+    showHidden: payload.showHidden,
+    portForwardHost: payload.portForwardHost,
+    portForwardPort: payload.portForwardPort,
+    terminalServiceId: payload.terminalServiceId,
   };
 }
 
@@ -441,9 +447,12 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
 
     enter_or_leave: (value: string) => {
       // Flutter sends enter=true when the session area gains focus and
-      // enter=false when it loses focus.  On leave, release any pressed
-      // modifier keys so they don't stay stuck on the peer.
-      const enter = value === 'true' || value === '1';
+      // enter=false when it loses focus.  Dart's dart:js passes bool as a
+      // JS boolean (true/false), not a string, so we must accept both.
+      // On leave, release any pressed modifier keys so they don't stay
+      // stuck on the peer.
+      const v = String(value);
+      const enter = v === 'true' || v === '1';
       if (!enter) {
         const session = ctx.getSession();
         if (!session) return;
@@ -693,14 +702,20 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
     // ---- file transfer ----
     cancel_job: (value: string) => {
       const id = parseInt(value, 10);
-      if (Number.isFinite(id)) ctx.cancelTransfer(id);
+      if (Number.isFinite(id)) {
+        clearTransferReadPath(id);
+        ctx.cancelTransfer(id);
+      }
     },
 
     select_files: (value: string) => {
       // Open a file/folder picker.  value is the is_folder flag from
-      // web_unique.dart ('true'/'false' or empty).  After selection, emit
-      // 'selected_files' so Flutter's fileModel.onSelectedFiles updates UI.
-      const isFolder = value === 'true' || value === '1';
+      // web_unique.dart:7 — Dart passes a JS boolean (true/false), not a
+      // string.  After selection, emit one 'selected_files' event per file
+      // so Flutter's fileModel.onSelectedFiles (file_model.dart:283-310)
+      // can decode each Entry and call webSendLocalFiles.
+      const v = String(value);
+      const isFolder = v === 'true' || v === '1';
       const input = document.createElement('input');
       input.type = 'file';
       input.multiple = true;
@@ -712,15 +727,22 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
         if (files.length === 0) return;
         const handleIndex = Date.now() & 0xffff;
         selectedFileHandles.set(handleIndex, files);
-        emitGlobalEvent({
-          name: 'selected_files',
-          handle_index: String(handleIndex),
-          files: JSON.stringify(files.map((f) => ({
-            name: f.name,
-            size: f.size,
-            last_modified: f.lastModified,
-          }))),
-        });
+        // Emit one event per file with the vendor-expected format:
+        //   handleIndex (camelCase), file (single Entry JSON string)
+        // Entry.fromJson (file_model.dart:1580-1585) expects:
+        //   entry_type (int), modified_time (int, seconds), name, size
+        for (const f of files) {
+          emitGlobalEvent({
+            name: 'selected_files',
+            handleIndex: String(handleIndex),
+            file: JSON.stringify({
+              name: f.name,
+              size: f.size,
+              modified_time: Math.floor(f.lastModified / 1000),
+              entry_type: 4, // file
+            }),
+          });
+        }
       };
       input.click();
     },
@@ -739,6 +761,8 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
       const remoteBase = payload.to || '';
       for (const file of files) {
         const remotePath = remoteBase.endsWith('/') ? remoteBase + file.name : remoteBase;
+        // Track the read_path for override_file_confirm events.
+        setTransferReadPath(payload.id, remotePath);
         void ftm.uploadFile(file, remotePath);
       }
       // Clean up the handle after dispatching.
@@ -760,11 +784,15 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
       if (!payload) return;
       if (payload.is_remote) {
         // Download: ask the peer to send files from the remote path.
+        // Track the read_path for override_file_confirm events.
+        setTransferReadPath(payload.id, payload.path);
         session.sendFileAction({
           send: { id: payload.id, path: payload.path, includeHidden: !!payload.include_hidden, fileNum: payload.file_num },
         });
       } else {
         // Upload: tell the peer to receive files at the remote destination.
+        // Track the read_path for override_file_confirm events.
+        setTransferReadPath(payload.id, payload.to);
         session.sendFileAction({
           receive: { id: payload.id, path: payload.to, fileNum: payload.file_num },
         });

@@ -19,6 +19,16 @@ export interface SessionConfig {
   forceRelay?: boolean;
   switchUuid?: string;
   isSharedPassword?: boolean;
+  /** Remote directory for file-transfer sessions (LoginRequest.file_transfer.dir). */
+  remoteDir?: string;
+  /** Show hidden files in file-transfer sessions. */
+  showHidden?: boolean;
+  /** Host for port-forward/RDP sessions (LoginRequest.port_forward.host). */
+  portForwardHost?: string;
+  /** Port for port-forward/RDP sessions (LoginRequest.port_forward.port). */
+  portForwardPort?: number;
+  /** Service ID for terminal sessions (LoginRequest.terminal.service_id). */
+  terminalServiceId?: string;
 }
 
 export enum CodecPreference {

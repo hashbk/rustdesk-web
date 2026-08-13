@@ -267,6 +267,38 @@ describe('events', () => {
       expect(displays[0].scaled_width).toBe(1920);
     });
 
+    // -- peer_info cursor_embedded type (Issue #168 #6) --
+    it('emits peer_info with cursor_embedded as integer 1/0 not boolean', () => {
+      const info: PeerInfoT = {
+        username: 'user',
+        hostname: 'host',
+        platform: 'Linux',
+        displays: [{ width: 1920, height: 1080, cursorEmbedded: true }],
+        currentDisplay: 0,
+        version: '1.3.0',
+      };
+      listeners.get('peerInfo')!(info);
+      const displays = JSON.parse(events[0].displays as string);
+      // Vendor (model.dart:1621) compares `evt['cursor_embedded'] == 1` (int).
+      // Boolean true would fail this check in Dart (true == 1 is false).
+      expect(displays[0].cursor_embedded).toBe(1);
+      expect(typeof displays[0].cursor_embedded).toBe('number');
+    });
+
+    it('emits peer_info with cursor_embedded 0 when false', () => {
+      const info: PeerInfoT = {
+        username: 'user',
+        hostname: 'host',
+        platform: 'Linux',
+        displays: [{ width: 1920, height: 1080, cursorEmbedded: false }],
+        currentDisplay: 0,
+        version: '1.3.0',
+      };
+      listeners.get('peerInfo')!(info);
+      const displays = JSON.parse(events[0].displays as string);
+      expect(displays[0].cursor_embedded).toBe(0);
+    });
+
     // -- cursor_data --
     it('emits cursor_data with id, hotx, hoty, width, height, colors', () => {
       listeners.get('cursorData')!({
@@ -419,16 +451,38 @@ describe('events', () => {
       expect(events[0]).toMatchObject({ name: 'job_error', id: '1', err: 'fail', file_num: '2' });
     });
 
-    // -- fileResponse → job_progress (Issue 5.2) --
-    it('emits job_progress for fileResponse.block', () => {
+    // -- fileResponse → job_progress (Issue 5.2, Issue #168 #2) --
+    it('emits job_progress for fileResponse.block with speed and finished_size', () => {
       listeners.get('fileResponse')!({ block: { id: 1, fileNum: 0, data: new Uint8Array([1, 2]), compressed: false, blkId: 5 } });
-      expect(events[0]).toMatchObject({ name: 'job_progress', id: '1', file_num: '0', blk_id: '5' });
+      expect(events[0]).toMatchObject({ name: 'job_progress', id: '1', file_num: '0' });
+      // Vendor (file_model.dart:1045-1061) requires speed and finished_size.
+      expect(events[0]).toHaveProperty('speed');
+      expect(events[0]).toHaveProperty('finished_size');
+      expect(events[0].finished_size).toBe('2'); // 2 bytes of data
     });
 
-    // -- fileResponse → override_file_confirm (Issue 5.3) --
-    it('emits override_file_confirm for fileResponse.digest', () => {
+    it('emits job_progress with cumulative finished_size across blocks', () => {
+      listeners.get('fileResponse')!({ block: { id: 7, fileNum: 0, data: new Uint8Array([1, 2, 3]), compressed: false } });
+      listeners.get('fileResponse')!({ block: { id: 7, fileNum: 0, data: new Uint8Array([4, 5]), compressed: false } });
+      // Second event should have cumulative finished_size = 3 + 2 = 5
+      expect(events[1]).toMatchObject({ name: 'job_progress', id: '7', finished_size: '5' });
+    });
+
+    // -- fileResponse → override_file_confirm (Issue 5.3, Issue #168 #5) --
+    it('emits override_file_confirm for fileResponse.digest with read_path', () => {
       listeners.get('fileResponse')!({ digest: { id: 2, fileNum: 1, fileSize: 100, isUpload: true } });
       expect(events[0]).toMatchObject({ name: 'override_file_confirm', id: '2', file_num: '1', is_upload: 'true' });
+      // Vendor (file_model.dart:166-167) expects read_path for the dialog.
+      expect(events[0]).toHaveProperty('read_path');
+    });
+
+    // -- fileResponse → empty_dirs (Issue #168 #7) --
+    it('emits empty_dirs for fileResponse.emptyDirs', () => {
+      listeners.get('fileResponse')!({
+        emptyDirs: { path: '/tmp', emptyDirs: [{ id: 1, path: '/tmp/sub', entries: [] }] },
+      });
+      expect(events[0]).toMatchObject({ name: 'empty_dirs', path: '/tmp' });
+      expect(events[0]).toHaveProperty('dirs');
     });
 
     // -- terminalResponse (data) --
@@ -453,6 +507,63 @@ describe('events', () => {
     it('emits show_elevation for elevationResponse', () => {
       listeners.get('elevationResponse')!('some_response');
       expect(events[0]).toEqual({ name: 'show_elevation', show: 'some_response' });
+    });
+
+    // ---- Issue #168 §7: previously missing events ----
+
+    it('emits toast for toast event', () => {
+      listeners.get('toast')!('Hello world');
+      expect(events[0]).toEqual({ name: 'toast', text: 'Hello world' });
+    });
+
+    it('emits sync_peer_info for syncPeerInfo event', () => {
+      listeners.get('syncPeerInfo')!([{ width: 1920, height: 1080 }]);
+      expect(events[0]).toMatchObject({ name: 'sync_peer_info' });
+      expect(events[0]).toHaveProperty('displays');
+    });
+
+    it('emits sync_platform_additions for syncPlatformAdditions event', () => {
+      listeners.get('syncPlatformAdditions')!('additions-data');
+      expect(events[0]).toEqual({ name: 'sync_platform_additions', platform_additions: 'additions-data' });
+    });
+
+    it('emits update_folder_files for updateFolderFiles event', () => {
+      listeners.get('updateFolderFiles')!({ id: 1, path: '/tmp' });
+      expect(events[0]).toMatchObject({ name: 'update_folder_files', id: 1, path: '/tmp' });
+    });
+
+    it('emits load_last_job for loadLastJob event', () => {
+      listeners.get('loadLastJob')!({ value: 'job-data' });
+      expect(events[0]).toMatchObject({ name: 'load_last_job', value: 'job-data' });
+    });
+
+    it('emits add_connection for addConnection event', () => {
+      listeners.get('addConnection')!({ id: 'peer1' });
+      expect(events[0]).toMatchObject({ name: 'add_connection' });
+      expect(events[0]).toHaveProperty('client');
+    });
+
+    it('emits on_client_remove for onClientRemove event', () => {
+      listeners.get('onClientRemove')!({ id: 'peer1' });
+      expect(events[0]).toMatchObject({ name: 'on_client_remove' });
+      expect(events[0]).toHaveProperty('client');
+    });
+
+    it('emits set_multiple_windows_session for setMultipleWindowsSession event', () => {
+      listeners.get('setMultipleWindowsSession')!([{ sid: 1, name: 'session1' }]);
+      expect(events[0]).toMatchObject({ name: 'set_multiple_windows_session' });
+      expect(events[0]).toHaveProperty('windows_sessions');
+    });
+
+    it('emits fingerprint for fingerprint event', () => {
+      listeners.get('fingerprint')!('abc123');
+      expect(events[0]).toEqual({ name: 'fingerprint', fingerprint: 'abc123' });
+    });
+
+    it('emits screenshot for screenshot event', () => {
+      listeners.get('screenshot')!({ url: 'data:image/png;base64,abc' });
+      expect(events[0]).toMatchObject({ name: 'screenshot' });
+      expect(events[0]).toHaveProperty('msg');
     });
 
     // -- update_privacy_mode --
