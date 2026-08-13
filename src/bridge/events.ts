@@ -115,3 +115,22 @@ export function emitFullscreenChanged(fullscreen: boolean): void {
   const cb = (window as unknown as { onFullscreenChanged?: BoolCallback }).onFullscreenChanged;
   cb?.(fullscreen);
 }
+
+/** Callback invoked with a JSON-stringified event for registered handlers. */
+type RegisteredEventCallback = (json: string) => void;
+
+/**
+ * Emit an event through the registered-handler channel
+ * (`window.onRegisteredEvent`).  Flutter registers this during init() and
+ * routes events through `tryHandle` (web_model.dart:162).  Falls back to
+ * `emitGlobalEvent` when no registered callback is set so events are not lost.
+ */
+export function emitRegisteredEvent(evt: Record<string, unknown>): void {
+  const cb = (window as unknown as { onRegisteredEvent?: RegisteredEventCallback }).onRegisteredEvent;
+  const json = JSON.stringify(evt);
+  if (cb) {
+    cb(json);
+  } else {
+    emitGlobalEvent(evt);
+  }
+}

@@ -105,7 +105,7 @@ function clearMockCalls(): void {
 
 describe('dispatcher', () => {
   let ctx: BridgeContext;
-  let setByName: (name: string, value?: string) => void;
+  let setByName: (name: string, value?: string) => string;
   let getByName: (name: string, arg?: string) => string;
 
   beforeEach(() => {
@@ -1135,6 +1135,145 @@ describe('dispatcher', () => {
 
     it('handles invalid JSON gracefully', () => {
       expect(() => setByName('query_onlines', 'not-json')).not.toThrow();
+    });
+  });
+
+  // ---- Issue #166 fixes ----
+
+  describe('lock_screen (Issue 3.3)', () => {
+    beforeEach(() => {
+      setByName('session_add_sync', JSON.stringify({ id: '1' }));
+      clearMockCalls();
+    });
+
+    it('sends dedicated LOCK_SCREEN control key (72)', () => {
+      setByName('lock_screen');
+      expect(mockSession.sendKey).toHaveBeenCalledTimes(1);
+      expect(mockSession.sendKey).toHaveBeenCalledWith(
+        expect.objectContaining({ controlKey: 72, press: true }),
+      );
+    });
+  });
+
+  describe('ctrl_alt_del (Issue 3.4)', () => {
+    beforeEach(() => {
+      setByName('session_add_sync', JSON.stringify({ id: '1' }));
+      clearMockCalls();
+    });
+
+    it('sends dedicated CtrlAltDel control key (71)', () => {
+      setByName('ctrl_alt_del');
+      expect(mockSession.sendKey).toHaveBeenCalledTimes(1);
+      expect(mockSession.sendKey).toHaveBeenCalledWith(
+        expect.objectContaining({ controlKey: 71, press: true }),
+      );
+    });
+  });
+
+  describe('enter_or_leave (Issue 2.2)', () => {
+    beforeEach(() => {
+      setByName('session_add_sync', JSON.stringify({ id: '1' }));
+      clearMockCalls();
+    });
+
+    it('does not release keys on enter', () => {
+      setByName('enter_or_leave', 'true');
+      expect(mockSession.sendKey).not.toHaveBeenCalled();
+    });
+
+    it('does not throw on leave with no modifiers pressed', () => {
+      expect(() => setByName('enter_or_leave', 'false')).not.toThrow();
+    });
+  });
+
+  describe('cursor (Issue 1.1)', () => {
+    it('resets cursor to auto', () => {
+      document.body.style.cursor = 'pointer';
+      setByName('cursor', 'auto');
+      expect(document.body.style.cursor).toBe('');
+    });
+
+    it('sets custom cursor from URL with hotspot', () => {
+      setByName('cursor', JSON.stringify({ url: 'data:image/png;base64,abc', hotx: 4, hoty: 4 }));
+      expect(document.body.style.cursor).toContain('data:image/png');
+      document.body.style.cursor = '';
+    });
+  });
+
+  describe('fullscreen (Issue 1.5, 1.6)', () => {
+    it('getByName returns N when not fullscreen', () => {
+      expect(getByName('fullscreen')).toBe('N');
+    });
+
+    it('setByName with Y does not throw', () => {
+      expect(() => setByName('fullscreen', 'Y')).not.toThrow();
+    });
+
+    it('setByName with N does not throw', () => {
+      expect(() => setByName('fullscreen', 'N')).not.toThrow();
+    });
+  });
+
+  describe('screen_info (Issue 1.3)', () => {
+    it('returns JSON with screen dimensions', () => {
+      const info = getByName('screen_info');
+      const parsed = JSON.parse(info);
+      expect(parsed).toHaveProperty('width');
+      expect(parsed).toHaveProperty('height');
+      expect(parsed).toHaveProperty('scale');
+    });
+  });
+
+  describe('local_os (Issue 1.4)', () => {
+    it('returns a non-empty platform string', () => {
+      const os = getByName('local_os');
+      expect(typeof os).toBe('string');
+    });
+  });
+
+  describe('session_add_sync return value (Issue 2.1)', () => {
+    it('returns a string (session id)', () => {
+      const result = setByName('session_add_sync', JSON.stringify({ id: '1' }));
+      expect(typeof result).toBe('string');
+    });
+
+    it('returns empty string for non-session keys', () => {
+      const result = setByName('refresh');
+      expect(result).toBe('');
+    });
+  });
+
+  describe('session_add_sync forceRelay/switchUuid (Issue 7.1)', () => {
+    it('accepts forceRelay and switchUuid without error', () => {
+      expect(() => setByName('session_add_sync', JSON.stringify({
+        id: '1', forceRelay: true, switchUuid: 'abc-123', is_shared_password: true,
+      }))).not.toThrow();
+      expect(mockSession.connect).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('session_start (Issue 7.2)', () => {
+    it('logs the peer id and does not throw', () => {
+      const debug = vi.spyOn(console, 'debug').mockImplementation(() => {});
+      setByName('session_add_sync', JSON.stringify({ id: '42' }));
+      clearMockCalls();
+      setByName('session_start', JSON.stringify({ id: '42' }));
+      expect(debug).toHaveBeenCalled();
+      debug.mockRestore();
+    });
+  });
+
+  describe('send_local_files (Issue 1.2)', () => {
+    it('does not throw when no session', () => {
+      expect(() => setByName('send_local_files', JSON.stringify({
+        id: 1, handle_index: 0, path: '/tmp', to: '/remote', file_num: 0,
+      }))).not.toThrow();
+    });
+  });
+
+  describe('select_files (Issue 3.1)', () => {
+    it('does not throw when called', () => {
+      expect(() => setByName('select_files', 'false')).not.toThrow();
     });
   });
 });

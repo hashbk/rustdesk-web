@@ -21,6 +21,7 @@ import { encodeRendezvous, decodeRendezvous } from '../protos';
 import { WsStream } from '../protocol/stream';
 import { BridgeContext } from './context';
 import { getCachedCodecAbilities } from './init';
+import { emitGlobalEvent } from './events';
 
 import { translate as translateText, langs as availableLangs } from './translations';
 import type {
@@ -31,6 +32,7 @@ import type {
 
   ReadRemoteDirPayload,
   SendFilesPayload,
+  SendLocalFilesPayload,
   ElevateWithLogonPayload,
   OptionPayload,
   EnvVarPayload,
@@ -183,6 +185,9 @@ const USB_HID_TO_CONTROL_KEY: Record<number, number> = {
 /** Tracks active modifier keys for flutter_key_event (Bug 8). */
 const modifierState = { ctrl: false, alt: false, shift: false, meta: false };
 
+/** Selected local files from the file picker, keyed by a handle index. */
+const selectedFileHandles = new Map<number, File[]>();
+
 /** USB HID ranges for conditional lock_modes (Bug 13). */
 const LETTER_HID_MIN = 0x04; // a
 const LETTER_HID_MAX = 0x1D; // z
@@ -279,6 +284,9 @@ function buildSessionConfig(ctx: BridgeContext, payload: SessionAddSyncPayload):
       key: server.key,
       useWss: server.useWss,
     },
+    forceRelay: !!payload.forceRelay,
+    switchUuid: payload.switchUuid,
+    isSharedPassword: payload.is_shared_password,
   };
 }
 
@@ -329,9 +337,14 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
     },
 
 
-    session_start: (_value: string) => {
-      // Flutter sends session_start after session_add_sync; the TS session
-      // is already connecting, so this is a no-op apart from status sync.
+    session_start: (value: string) => {
+      // Flutter sends session_start after session_add_sync with the peer id.
+      // The TS session is already connecting; log the id for debugging.  If
+      // no session exists yet (session_add_sync not called), this is a no-op.
+      const payload = parseJson<{ id?: string }>(value);
+      if (payload?.id) {
+        console.debug('[bridge] session_start for peer', payload.id);
+      }
       const session = ctx.getSession();
       if (session && session.state === 'connected') {
         ctx.setConnStatus('connected');
@@ -426,9 +439,31 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
       session.sendKey({ press: true, seq: value, modifiers: [] });
     },
 
-    enter_or_leave: (_value: string) => {
-      // Used by Flutter to auto-release keys on focus change.  The TS session
-      // does not track pressed keys centrally, so this is an intentional no-op.
+    enter_or_leave: (value: string) => {
+      // Flutter sends enter=true when the session area gains focus and
+      // enter=false when it loses focus.  On leave, release any pressed
+      // modifier keys so they don't stay stuck on the peer.
+      const enter = value === 'true' || value === '1';
+      if (!enter) {
+        const session = ctx.getSession();
+        if (!session) return;
+        if (modifierState.ctrl) {
+          session.sendKey({ down: false, controlKey: NAME_TO_CONTROL_KEY.Control, modifiers: [] });
+        }
+        if (modifierState.alt) {
+          session.sendKey({ down: false, controlKey: NAME_TO_CONTROL_KEY.Alt, modifiers: [] });
+        }
+        if (modifierState.shift) {
+          session.sendKey({ down: false, controlKey: NAME_TO_CONTROL_KEY.Shift, modifiers: [] });
+        }
+        if (modifierState.meta) {
+          session.sendKey({ down: false, controlKey: NAME_TO_CONTROL_KEY.Meta, modifiers: [] });
+        }
+        modifierState.ctrl = false;
+        modifierState.alt = false;
+        modifierState.shift = false;
+        modifierState.meta = false;
+      }
     },
 
     flutter_key_event: (value: string) => {
@@ -502,25 +537,17 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
     lock_screen: () => {
       const session = ctx.getSession();
       if (!session) return;
-      // Ctrl+Alt+L is the conventional lock-screen shortcut on most OSes,
-      // but RustDesk sends a dedicated misc.lockScreen.  Use the key sequence
-      // until a dedicated API is added.
-      session.sendKey({ down: true, controlKey: NAME_TO_CONTROL_KEY.Control, modifiers: [] });
-      session.sendKey({ down: true, controlKey: NAME_TO_CONTROL_KEY.Alt, modifiers: [4] });
-      session.sendKey({ press: true, chr: 'l'.charCodeAt(0), modifiers: [4, 1] });
-      session.sendKey({ down: false, controlKey: NAME_TO_CONTROL_KEY.Control, modifiers: [] });
-      session.sendKey({ down: false, controlKey: NAME_TO_CONTROL_KEY.Alt, modifiers: [] });
+      // Send the dedicated LOCK_SCREEN control key (enum 72) as a single
+      // key event, matching the native RustDesk client behaviour.
+      session.sendKey({ press: true, controlKey: NAME_TO_CONTROL_KEY.LOCK_SCREEN, modifiers: [] });
     },
 
     ctrl_alt_del: () => {
       const session = ctx.getSession();
       if (!session) return;
-      session.sendKey({ down: true, controlKey: NAME_TO_CONTROL_KEY.Control, modifiers: [] });
-      session.sendKey({ down: true, controlKey: NAME_TO_CONTROL_KEY.Alt, modifiers: [4] });
-      session.sendKey({ down: true, controlKey: NAME_TO_CONTROL_KEY.Delete, modifiers: [4, 1] });
-      session.sendKey({ down: false, controlKey: NAME_TO_CONTROL_KEY.Delete, modifiers: [4, 1] });
-      session.sendKey({ down: false, controlKey: NAME_TO_CONTROL_KEY.Alt, modifiers: [4] });
-      session.sendKey({ down: false, controlKey: NAME_TO_CONTROL_KEY.Control, modifiers: [] });
+      // Send the dedicated CtrlAltDel control key (enum 71) as a single
+      // key event (SAS / Secure Attention Sequence on Windows peers).
+      session.sendKey({ press: true, controlKey: NAME_TO_CONTROL_KEY.CtrlAltDel, modifiers: [] });
     },
 
     // ---- elevation ----
@@ -669,8 +696,53 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
       if (Number.isFinite(id)) ctx.cancelTransfer(id);
     },
 
-    select_files: () => {
-      // File-selection UI lives in Flutter; this is an intentional no-op.
+    select_files: (value: string) => {
+      // Open a file/folder picker.  value is the is_folder flag from
+      // web_unique.dart ('true'/'false' or empty).  After selection, emit
+      // 'selected_files' so Flutter's fileModel.onSelectedFiles updates UI.
+      const isFolder = value === 'true' || value === '1';
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.multiple = true;
+      if (isFolder) {
+        input.webkitdirectory = true;
+      }
+      input.onchange = () => {
+        const files = Array.from(input.files ?? []);
+        if (files.length === 0) return;
+        const handleIndex = Date.now() & 0xffff;
+        selectedFileHandles.set(handleIndex, files);
+        emitGlobalEvent({
+          name: 'selected_files',
+          handle_index: String(handleIndex),
+          files: JSON.stringify(files.map((f) => ({
+            name: f.name,
+            size: f.size,
+            last_modified: f.lastModified,
+          }))),
+        });
+      };
+      input.click();
+    },
+
+    send_local_files: (value: string) => {
+      // Upload local files to the peer.  Reads files from the picker handle
+      // and streams them via FileTransferManager.uploadFile.
+      const session = ctx.getSession();
+      const ftm = ctx.getFileTransferManager();
+      if (!session || !ftm) return;
+      const payload = parseJson<SendLocalFilesPayload>(value);
+      if (!payload) return;
+      const files = selectedFileHandles.get(payload.handle_index);
+      if (!files || files.length === 0) return;
+      // Upload each selected file to the remote destination path.
+      const remoteBase = payload.to || '';
+      for (const file of files) {
+        const remotePath = remoteBase.endsWith('/') ? remoteBase + file.name : remoteBase;
+        void ftm.uploadFile(file, remotePath);
+      }
+      // Clean up the handle after dispatching.
+      selectedFileHandles.delete(payload.handle_index);
     },
 
     read_remote_dir: (value: string) => {
@@ -878,6 +950,37 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
     },
 
     // ---- remote control ----
+    cursor: (value: string) => {
+      // Set a custom cursor from a data URL with hotspot, or 'auto' to reset.
+      // Applied via the CSS cursor property on the document body.
+      if (value === 'auto') {
+        document.body.style.cursor = '';
+        return;
+      }
+      const payload = parseJson<{ url?: string; hotx?: number; hoty?: number }>(value);
+      if (payload?.url) {
+        const hotx = payload.hotx ?? 0;
+        const hoty = payload.hoty ?? 0;
+        document.body.style.cursor = `url("${payload.url}") ${hotx} ${hoty}, auto`;
+      }
+    },
+
+    fullscreen: (value: string) => {
+      // Enter fullscreen when value === 'Y', exit when 'N'.
+      if (value === 'Y') {
+        const el = document.documentElement;
+        const req = el.requestFullscreen?.() ?? (el as unknown as { webkitRequestFullscreen?: () => void }).webkitRequestFullscreen?.();
+        if (req && typeof (req as { catch?: () => void }).catch === 'function') {
+          (req as Promise<void>).catch(() => { /* ignore fullscreen errors */ });
+        }
+      } else if (value === 'N') {
+        const exit = document.exitFullscreen?.() ?? (document as unknown as { webkitExitFullscreen?: () => void }).webkitExitFullscreen?.();
+        if (exit && typeof (exit as { catch?: () => void }).catch === 'function') {
+          (exit as Promise<void>).catch(() => { /* ignore fullscreen errors */ });
+        }
+      }
+    },
+
     restart: () => {
       ctx.getSession()?.sendRestartRemoteDevice();
     },
@@ -1069,6 +1172,33 @@ export function createGetRegistry(ctx: BridgeContext): GetRegistry {
     // ---- display ----
     main_display: () => '0',
 
+    screen_info: () => {
+      // Return screen dimensions and devicePixelRatio (common.dart:16).
+      return JSON.stringify({
+        width: window.screen.width,
+        height: window.screen.height,
+        availWidth: window.screen.availWidth,
+        availHeight: window.screen.availHeight,
+        scale: window.devicePixelRatio ?? 1,
+      });
+    },
+
+    local_os: () => {
+      // Detect the local OS platform (common.dart:18).  Returns one of
+      // "Windows", "Linux", "Mac OS" to match kPeerPlatform constants.
+      const ua = navigator.userAgent;
+      const platform = (navigator.platform ?? '') + ' ' + ua;
+      if (/Win/i.test(platform)) return 'Windows';
+      if (/Mac/i.test(platform)) return 'Mac OS';
+      if (/Linux/i.test(platform)) return 'Linux';
+      return '';
+    },
+
+    fullscreen: () => {
+      // Return 'Y' if currently fullscreen, 'N' otherwise (state_model.dart:92).
+      return document.fullscreenElement != null ? 'Y' : 'N';
+    },
+
     // ---- languages ----
     langs: () => JSON.stringify(availableLangs),
 
@@ -1185,16 +1315,20 @@ function sessionOptionToMessage(name: string, value: string): SessionOptionMessa
 /**
  * Create a bound setByName/getByName pair for the given context.
  * Unknown keys log a console warning and no-op (never throw).
+ *
+ * setByName returns a string (matching bridge.dart's expectation that
+ * sessionAddSync returns a String).  For session_add_sync the session id is
+ * returned; for all other keys '' is returned.
  */
 export function createDispatcher(ctx: BridgeContext): {
-  setByName: (name: string, value?: string) => void;
+  setByName: (name: string, value?: string) => string;
   getByName: (name: string, arg?: string) => string;
 } {
   const setRegistry = createSetRegistry(ctx);
   const getRegistry = createGetRegistry(ctx);
 
   return {
-    setByName(name: string, value: string = ''): void {
+    setByName(name: string, value: string = ''): string {
       const handler = setRegistry[name];
       if (handler) {
         try {
@@ -1202,9 +1336,14 @@ export function createDispatcher(ctx: BridgeContext): {
         } catch (err) {
           console.error(`[bridge] setByName("${name}") threw:`, err);
         }
-      } else {
-        stub('set', name);
+        // session_add_sync expects a String return (the session id).
+        if (name === 'session_add_sync') {
+          return ctx.getSession()?.connSessionId ?? '';
+        }
+        return '';
       }
+      stub('set', name);
+      return '';
     },
     getByName(name: string, arg: string = ''): string {
       const handler = getRegistry[name];

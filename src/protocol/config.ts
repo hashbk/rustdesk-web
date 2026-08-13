@@ -16,6 +16,9 @@ export interface SessionConfig {
   server: ServerConfig;
   codecPreference?: CodecPreference;
   imageQuality?: ImageQuality;
+  forceRelay?: boolean;
+  switchUuid?: string;
+  isSharedPassword?: boolean;
 }
 
 export enum CodecPreference {

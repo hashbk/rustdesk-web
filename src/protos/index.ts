@@ -191,11 +191,18 @@ export type MessageT = {
     colors?: Uint8Array;
   };
   cursorPosition?: { x?: number; y?: number };
+  cursorId?: number | Long;
   position?: { x?: number; y?: number };
   clipboard?: { compress?: boolean; content?: Uint8Array };
   audioFormat?: { sampleRate?: number; channels?: number; msecPerPacket?: number };
   audioFrame?: { timestamp?: number | Long; data?: Uint8Array };
-  misc?: { audioSeeds?: number[] } & Record<string, unknown>;
+  misc?: {
+    audioSeeds?: number[];
+    chatMessage?: { text?: string };
+    switchBack?: Record<string, never>;
+    portableServiceRunning?: boolean;
+    clientRecordStatus?: boolean;
+  } & Record<string, unknown>;
   option?: Record<string, unknown>;
   closeReason?: string;
   refresh?: boolean;

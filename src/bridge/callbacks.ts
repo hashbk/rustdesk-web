@@ -39,10 +39,12 @@ import { decompress as zstdDecompress } from 'fzstd';
 import {
   emitGlobalEvent,
   emitVideoFrame,
+  emitRgba,
   emitCloseConnection,
-  emitLoginDialog,
+  emitFullscreenChanged,
 } from './events';
 import { VideoRenderer } from '../media/renderer';
+import { AudioPlayer } from '../media/AudioPlayer';
 
 /** Base64-encode a Uint8Array (for binary fields in JSON events). */
 function base64(bytes: Uint8Array): string {
@@ -126,9 +128,31 @@ function emitFileResponse(resp: NonNullable<MessageT['fileResponse']>): void {
       id: String(resp.done.id ?? 0),
       file_num: String(resp.done.fileNum ?? 0),
     });
+  } else if (resp.block) {
+    // File data block: forward as job_progress so Flutter updates the
+    // transfer progress bar (model.dart handles 'job_progress').
+    emitGlobalEvent({
+      name: 'job_progress',
+      id: String(resp.block.id ?? 0),
+      file_num: String(resp.block.fileNum ?? 0),
+      blk_id: String(resp.block.blkId ?? 0),
+      compressed: String(resp.block.compressed ?? false),
+    });
+  } else if (resp.digest) {
+    // Digest triggers an override-confirmation dialog when the destination
+    // file already exists (model.dart handles 'override_file_confirm').
+    emitGlobalEvent({
+      name: 'override_file_confirm',
+      id: String(resp.digest.id ?? 0),
+      file_num: String(resp.digest.fileNum ?? 0),
+      is_upload: String(resp.digest.isUpload ?? false),
+      file_size: String(resp.digest.fileSize ?? 0),
+      last_modified: String(resp.digest.lastModified ?? 0),
+      is_identical: String(resp.digest.isIdentical ?? false),
+      transferred_size: String(resp.digest.transferredSize ?? 0),
+      is_resume: String(resp.digest.isResume ?? false),
+    });
   }
-  // block / digest are streamed; handled by FileTransferManager, not emitted
-  // as global events in the RustDesk reference.
 }
 
 /** Map a terminalResponse union to the `terminal_response` global event. */
@@ -207,6 +231,17 @@ export function attachSessionCallbacks(session: RemoteSession, display: number):
       x: String(pos.x ?? 0),
       y: String(pos.y ?? 0),
     });
+  });
+
+  session.on('cursorId', (id) => {
+    emitGlobalEvent({ name: 'cursor_id', id: String(id) });
+  });
+
+  session.on('chatMessage', (msg) => {
+    // Chat from the peer: emit both client and server mode events so
+    // Flutter's ChatModel.receive is invoked (model.dart:369-374).
+    emitGlobalEvent({ name: 'chat_client_mode', text: msg.text ?? '' });
+    emitGlobalEvent({ name: 'chat_server_mode', id: '0', text: msg.text ?? '' });
   });
 
   session.on('clipboard', (clip) => {
@@ -313,6 +348,22 @@ export function attachSessionCallbacks(session: RemoteSession, display: number):
   });
 
   session.on('miscOption', (option) => {
+    // Route special misc fields to their dedicated global events.
+    if ('portable_service_running' in option) {
+      emitGlobalEvent({
+        name: 'portable_service_running',
+        running: String(option.portable_service_running),
+      });
+    }
+    if ('switch_back' in option) {
+      emitGlobalEvent({ name: 'switch_back', peer_id: '' });
+    }
+    if ('record_status' in option) {
+      emitGlobalEvent({
+        name: 'record_status',
+        start: String(option.record_status),
+      });
+    }
     emitGlobalEvent({ name: 'sync_peer_option', v: JSON.stringify(option) });
   });
 
@@ -369,11 +420,35 @@ export function attachSessionCallbacks(session: RemoteSession, display: number):
   });
 
   // Video renderer for bridge path: decode encoded frames and deliver to
-  // Dart via window.onVideoFrame (GPU zero-readback path).
+  // Dart via window.onVideoFrame (GPU zero-readback path).  When the GPU
+  // texture callback is not registered (browser lacks
+  // createImageFromTextureSource), fall back to reading RGBA pixels from the
+  // canvas and delivering them via window.onRgba.
   const canvas = document.createElement('canvas');
   const renderer = new VideoRenderer(canvas, (e) => console.error('[bridge renderer]', e.message));
   renderer.setDisplayIndex(display);
-  renderer.onDecodedFrame = (disp, frame) => emitVideoFrame(disp, frame);
+  renderer.onDecodedFrame = (disp, frame) => {
+    const videoCb = (window as unknown as { onVideoFrame?: unknown }).onVideoFrame;
+    if (typeof videoCb === 'function') {
+      emitVideoFrame(disp, frame);
+    } else {
+      // RGBA fallback: draw the frame to the canvas and read pixels.
+      try {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(frame, 0, 0);
+          const { width, height } = canvas;
+          if (width > 0 && height > 0) {
+            const rgba = ctx.getImageData(0, 0, width, height).data;
+            emitRgba(disp, new Uint8Array(rgba));
+          }
+        }
+      } catch {
+        // Drawing may fail for some frame types; drop silently.
+      }
+      frame.close?.();
+    }
+  };
 
   session.on('videoFrame', (frame) => {
     const displayIdx = (frame as { display?: number }).display ?? display;
@@ -381,11 +456,41 @@ export function attachSessionCallbacks(session: RemoteSession, display: number):
     renderer.handleFrame(frame);
   });
 
+  // Audio: decode and play via WebAudio (AudioPlayer).  This is the primary
+  // path on web; Flutter does not handle audio itself.  If AudioPlayer
+  // configuration fails (no WebCodecs), frames are dropped silently.
+  const audioPlayer = new AudioPlayer((e) => console.error('[bridge audio]', e.message));
+  let audioConfigured = false;
+
+  session.on('audioFormat', (fmt) => {
+    const sampleRate = fmt.sampleRate ?? 48000;
+    const channels = fmt.channels ?? 2;
+    void audioPlayer.configure(sampleRate, channels).then((ok) => {
+      audioConfigured = ok;
+    });
+  });
+
+  session.on('audioFrame', (frame) => {
+    if (audioConfigured && frame.data) {
+      audioPlayer.handleFrame(frame.data);
+    }
+  });
+
+  // Fullscreen change listener: notify Flutter when the user enters/exits
+  // fullscreen via browser controls (F11, etc.).
+  const onFullscreenChange = () => {
+    emitFullscreenChanged(document.fullscreenElement != null);
+  };
+  document.addEventListener('fullscreenchange', onFullscreenChange);
+
   session.on('closeReason', () => {
     emitCloseConnection();
   });
 
   session.on('error', (error: Error) => {
+    // Session-level errors go through the msgbox event so Flutter's
+    // handleMsgBox displays them.  Bridge-level (pre-session) errors use
+    // the dialog callback via emitDialog.
     emitGlobalEvent({
       name: 'msgbox',
       type: 'error',
@@ -397,11 +502,21 @@ export function attachSessionCallbacks(session: RemoteSession, display: number):
   });
 
   session.on('need2fa', () => {
-    emitLoginDialog();
+    // Emit an input-2fa msgbox so Flutter's model.dart shows the 2FA input
+    // dialog (matching the native client behaviour).
+    emitGlobalEvent({
+      name: 'msgbox',
+      type: 'input-2fa',
+      title: '2FA',
+      text: '',
+      link: '',
+      hasRetry: '',
+    });
   });
 
-  // audioFormat / audioFrame / log are not routed to onGlobalEvent in the
-  // RustDesk reference; they are handled internally by the TS media pipeline.
-
-  return () => renderer.destroy();
+  return () => {
+    renderer.destroy();
+    audioPlayer.destroy();
+    document.removeEventListener('fullscreenchange', onFullscreenChange);
+  };
 }

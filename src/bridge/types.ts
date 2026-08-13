@@ -77,6 +77,17 @@ export interface SendFilesPayload {
   is_dir?: boolean;
 }
 
+/** JSON payload of `send_local_files` (web_unique.dart). */
+export interface SendLocalFilesPayload {
+  id: number;
+  handle_index: number;
+  path: string;
+  to: string;
+  file_num: number;
+  include_hidden?: boolean;
+  is_remote?: boolean;
+}
+
 /** JSON payload of `elevate_with_logon`. */
 export interface ElevateWithLogonPayload {
   username: string;

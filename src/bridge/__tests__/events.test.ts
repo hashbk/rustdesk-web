@@ -190,7 +190,6 @@ describe('events', () => {
     let listeners: Map<string, (...args: unknown[]) => void>;
     let events: Record<string, unknown>[];
     let closeConnectionCalls: number;
-    let loginDialogCalls: number;
 
     beforeEach(() => {
       mockSession = makeMockSession();
@@ -202,9 +201,8 @@ describe('events', () => {
       };
       setGlobalEventCallback(collectingCb);
       closeConnectionCalls = 0;
-      loginDialogCalls = 0;
       (window as unknown as { closeConnection?: unknown }).closeConnection = () => { closeConnectionCalls++; };
-      (window as unknown as { loginDialog?: unknown }).loginDialog = () => { loginDialogCalls++; };
+      (window as unknown as { loginDialog?: unknown }).loginDialog = () => {};
       attachSessionCallbacks(mockSession.session, 0);
     });
 
@@ -294,6 +292,19 @@ describe('events', () => {
     it('emits cursor_position with x, y', () => {
       listeners.get('cursorPosition')!({ x: 10, y: 20 });
       expect(events[0]).toEqual({ name: 'cursor_position', x: '10', y: '20' });
+    });
+
+    // -- cursor_id (Issue 5.1) --
+    it('emits cursor_id with id', () => {
+      listeners.get('cursorId')!(42);
+      expect(events[0]).toEqual({ name: 'cursor_id', id: '42' });
+    });
+
+    // -- chatMessage (Issue 5.7) --
+    it('emits chat_client_mode and chat_server_mode for chatMessage', () => {
+      listeners.get('chatMessage')!({ text: 'hello' });
+      expect(events[0]).toMatchObject({ name: 'chat_client_mode', text: 'hello' });
+      expect(events[1]).toMatchObject({ name: 'chat_server_mode', text: 'hello' });
     });
 
     // -- clipboard --
@@ -408,6 +419,18 @@ describe('events', () => {
       expect(events[0]).toMatchObject({ name: 'job_error', id: '1', err: 'fail', file_num: '2' });
     });
 
+    // -- fileResponse → job_progress (Issue 5.2) --
+    it('emits job_progress for fileResponse.block', () => {
+      listeners.get('fileResponse')!({ block: { id: 1, fileNum: 0, data: new Uint8Array([1, 2]), compressed: false, blkId: 5 } });
+      expect(events[0]).toMatchObject({ name: 'job_progress', id: '1', file_num: '0', blk_id: '5' });
+    });
+
+    // -- fileResponse → override_file_confirm (Issue 5.3) --
+    it('emits override_file_confirm for fileResponse.digest', () => {
+      listeners.get('fileResponse')!({ digest: { id: 2, fileNum: 1, fileSize: 100, isUpload: true } });
+      expect(events[0]).toMatchObject({ name: 'override_file_confirm', id: '2', file_num: '1', is_upload: 'true' });
+    });
+
     // -- terminalResponse (data) --
     it('emits terminal_response for terminalResponse.data', () => {
       listeners.get('terminalResponse')!({
@@ -476,6 +499,36 @@ describe('events', () => {
       expect(events[0]).toMatchObject({ name: 'update_quality_status', target_bitrate: '5000000' });
     });
 
+    // -- miscOption → portable_service_running (Issue 5.13) --
+    it('emits portable_service_running for miscOption', () => {
+      listeners.get('miscOption')!({ portable_service_running: true });
+      expect(events[0]).toMatchObject({ name: 'portable_service_running', running: 'true' });
+    });
+
+    // -- miscOption → switch_back (Issue 5.15) --
+    it('emits switch_back for miscOption', () => {
+      listeners.get('miscOption')!({ switch_back: true });
+      const sw = events.find((e) => e.name === 'switch_back');
+      expect(sw).toBeDefined();
+    });
+
+    // -- miscOption → record_status (Issue 5.17) --
+    it('emits record_status for miscOption', () => {
+      listeners.get('miscOption')!({ record_status: true });
+      const rs = events.find((e) => e.name === 'record_status');
+      expect(rs).toBeDefined();
+    });
+
+    // -- audioFormat listener registered (Issue 4.5) --
+    it('registers an audioFormat listener', () => {
+      expect(listeners.has('audioFormat')).toBe(true);
+    });
+
+    // -- audioFrame listener registered (Issue 4.5) --
+    it('registers an audioFrame listener', () => {
+      expect(listeners.has('audioFrame')).toBe(true);
+    });
+
     // -- closeReason → closeConnection --
     it('calls emitCloseConnection for closeReason', () => {
       listeners.get('closeReason')!('timeout');
@@ -493,10 +546,14 @@ describe('events', () => {
       });
     });
 
-    // -- need2fa → loginDialog --
-    it('calls emitLoginDialog for need2fa', () => {
+    // -- need2fa → msgbox input-2fa --
+    it('emits msgbox input-2fa for need2fa', () => {
       listeners.get('need2fa')!();
-      expect(loginDialogCalls).toBe(1);
+      expect(events[0]).toMatchObject({
+        name: 'msgbox',
+        type: 'input-2fa',
+        title: '2FA',
+      });
     });
 
     // -- videoFrame → renderer (not a no-op) --
