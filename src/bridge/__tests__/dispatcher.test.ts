@@ -937,6 +937,26 @@ describe('dispatcher', () => {
       expect(ctx.getUserDefaultOption('theme')).toBe('dark');
     });
 
+    it('option:user:default get returns stored value when set', () => {
+      ctx.setUserDefaultOption('view_style', 'adaptive');
+      expect(getByName('option:user:default', 'view_style')).toBe('adaptive');
+    });
+
+    it('option:user:default get returns native defaults when unset', () => {
+      expect(getByName('option:user:default', 'view_style')).toBe('original');
+      expect(getByName('option:user:default', 'scroll_style')).toBe('scrollauto');
+      expect(getByName('option:user:default', 'image_quality')).toBe('balanced');
+      expect(getByName('option:user:default', 'codec-preference')).toBe('auto');
+      expect(getByName('option:user:default', 'custom_image_quality')).toBe('50');
+      expect(getByName('option:user:default', 'custom-fps')).toBe('30');
+      expect(getByName('option:user:default', 'edge-scroll-edge-thickness')).toBe('100');
+      expect(getByName('option:user:default', 'trackpad-speed')).toBe('100');
+    });
+
+    it('option:user:default get returns empty string for unknown key', () => {
+      expect(getByName('option:user:default', 'unknown-key')).toBe('');
+    });
+
     it('common set stores common option', () => {
       setByName('common', JSON.stringify({ name: 'key', value: 'val' }));
       expect(ctx.getCommon('key')).toBe('val');
