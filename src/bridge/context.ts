@@ -128,6 +128,7 @@ export interface PeerRecord {
 export class BridgeContext {
   private session: RemoteSession | null = null;
   private ftm: FileTransferManager | null = null;
+  private sessionCleanup: (() => void) | null = null;
   private connStatus: ConnStatus = 'disconnected';
   private server: ServerConfigLike = { ...DEFAULT_SERVER };
   private appName = APP_NAME;
@@ -176,7 +177,8 @@ export class BridgeContext {
 
     // Wire session events → window.onGlobalEvent / onRgba / onVideoFrame.
     // Display index defaults to 0; switch_display events will update it.
-    attachSessionCallbacks(session, 0);
+
+    this.sessionCleanup = attachSessionCallbacks(session, 0);
 
     this.ftm = new FileTransferManager(
       (a) => session.sendFileAction(a),
@@ -195,7 +197,15 @@ export class BridgeContext {
         /* ignore */
       }
     }
+    if (this.sessionCleanup) {
+      try {
+        this.sessionCleanup();
+      } catch {
+        /* ignore */
+      }
+    }
     this.session = null;
+    this.sessionCleanup = null;
     this.ftm = null;
     this.retainedConfig = null;
     this.setConnStatus('disconnected');

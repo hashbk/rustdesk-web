@@ -38,10 +38,11 @@ import type {
 import { decompress as zstdDecompress } from 'fzstd';
 import {
   emitGlobalEvent,
-
+  emitVideoFrame,
   emitCloseConnection,
   emitLoginDialog,
 } from './events';
+import { VideoRenderer } from '../media/renderer';
 
 /** Base64-encode a Uint8Array (for binary fields in JSON events). */
 function base64(bytes: Uint8Array): string {
@@ -161,7 +162,7 @@ function emitTerminalResponse(resp: NonNullable<MessageT['terminalResponse']>): 
  * @param display  The display index this session renders (passed to
  *                 `emitVideoFrame`).
  */
-export function attachSessionCallbacks(session: RemoteSession, display: number): void {
+export function attachSessionCallbacks(session: RemoteSession, display: number): () => void {
   session.on('peerInfo', (info) => {
     emitGlobalEvent({ name: 'peer_info', ...flattenPeerInfo(info) });
   });
@@ -291,18 +292,17 @@ export function attachSessionCallbacks(session: RemoteSession, display: number):
     });
   });
 
+  // Video renderer for bridge path: decode encoded frames and deliver to
+  // Dart via window.onVideoFrame (GPU zero-readback path).
+  const canvas = document.createElement('canvas');
+  const renderer = new VideoRenderer(canvas, (e) => console.error('[bridge renderer]', e.message));
+  renderer.setDisplayIndex(display);
+  renderer.onDecodedFrame = (disp, frame) => emitVideoFrame(disp, frame);
+
   session.on('videoFrame', (frame) => {
-    // The VideoRenderer decodes the encoded frame; if a decoded-frame
-    // callback is wired (onVideoFrame path) it is routed there, otherwise
-    // the renderer draws to canvas and the RGBA path is used.  Here we
-    // only forward the encoded frame; the renderer is responsible for
-    // calling emitVideoFrame when it decodes.  We pass the display index
-    // through via the frame's display field if present.
     const displayIdx = (frame as { display?: number }).display ?? display;
-    // Emit a switch_display-like notification so the renderer knows which
-    // display this frame belongs to.  The actual decoded-frame routing is
-    // done in VideoRenderer via onDecodedFrame.
-    void displayIdx;
+    renderer.setDisplayIndex(displayIdx);
+    renderer.handleFrame(frame);
   });
 
   session.on('closeReason', () => {
@@ -326,4 +326,6 @@ export function attachSessionCallbacks(session: RemoteSession, display: number):
 
   // audioFormat / audioFrame / log are not routed to onGlobalEvent in the
   // RustDesk reference; they are handled internally by the TS media pipeline.
+
+  return () => renderer.destroy();
 }
