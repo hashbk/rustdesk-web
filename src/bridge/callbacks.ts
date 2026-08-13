@@ -210,9 +210,18 @@ export function attachSessionCallbacks(session: RemoteSession, display: number):
   });
 
   session.on('clipboard', (clip) => {
+    const raw = clip.content ?? new Uint8Array();
+    let bytes = raw;
+    if (clip.compress) {
+      try {
+        bytes = zstdDecompress(raw);
+      } catch {
+        bytes = raw;
+      }
+    }
     emitGlobalEvent({
       name: 'clipboard',
-      content: textDecode(clip.content ?? new Uint8Array()),
+      content: textDecode(bytes),
     });
   });
 
@@ -264,6 +273,58 @@ export function attachSessionCallbacks(session: RemoteSession, display: number):
 
   session.on('elevationResponse', (response) => {
     emitGlobalEvent({ name: 'show_elevation', show: response });
+  });
+
+  session.on('permissionInfo', (info) => {
+    emitGlobalEvent({
+      name: 'permission',
+      [info.permission]: String(info.enabled),
+    });
+  });
+
+  session.on('uac', (uac) => {
+    if (uac) {
+      emitGlobalEvent({
+        name: 'msgbox',
+        type: 'on-uac',
+        title: 'Prompt',
+        text: 'Please wait for confirmation of UAC...',
+        link: '',
+        hasRetry: '',
+      });
+    } else {
+      emitGlobalEvent({ name: 'cancel_msgbox', id: 'on-uac' });
+    }
+  });
+
+  session.on('foregroundWindowElevated', (elevated) => {
+    if (elevated) {
+      emitGlobalEvent({
+        name: 'msgbox',
+        type: 'on-foreground-elevated',
+        title: 'Prompt',
+        text: 'elevated_foreground_window_tip',
+        link: '',
+        hasRetry: '',
+      });
+    } else {
+      emitGlobalEvent({ name: 'cancel_msgbox', id: 'on-foreground-elevated' });
+    }
+  });
+
+  session.on('miscOption', (option) => {
+    emitGlobalEvent({ name: 'sync_peer_option', v: JSON.stringify(option) });
+  });
+
+  session.on('supportedEncoding', (encoding) => {
+    emitGlobalEvent({ name: 'use_texture_render', encoding: JSON.stringify(encoding) });
+  });
+
+  session.on('followCurrentDisplay', (display) => {
+    emitGlobalEvent({
+      name: 'follow_current_display',
+      display_idx: String(display),
+    });
   });
 
   session.on('privacyModeState', (notification: PrivacyModeNotification) => {
