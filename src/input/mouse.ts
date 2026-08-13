@@ -41,9 +41,9 @@ export class MouseAdapter {
       case 0:
         return BTN_LEFT;
       case 1:
-        return BTN_RIGHT;
-      case 2:
         return BTN_WHEEL;
+      case 2:
+        return BTN_RIGHT;
       case 3:
         return BTN_BACK;
       case 4:

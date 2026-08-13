@@ -27,6 +27,7 @@ const STATE_LABEL: Record<string, string> = {
 export function SessionPage({ config, onExit }: Props) {
   const session = useRemoteSession();
   const [twoFa, setTwoFa] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
   const [showLogs, setShowLogs] = useState(false);
   const [viewOnly, setViewOnly] = useState(false);
   const [stats, setStats] = useState<RenderStats | null>(null);
@@ -432,12 +433,37 @@ export function SessionPage({ config, onExit }: Props) {
                 {session.messageBox.link}
               </p>
             )}
-            <button
-              className="btn btn-primary"
-              onClick={session.dismissMessageBox}
-            >
-              确定
-            </button>
+            {session.messageBox.msgType === 'input-password' ? (
+              <>
+                <div className="field">
+                  <input
+                    className="input"
+                    type="password"
+                    value={passwordInput}
+                    onChange={(e) => setPasswordInput(e.target.value)}
+                    placeholder="密码"
+                    autoFocus
+                  />
+                </div>
+                <button
+                  className="btn btn-primary"
+                  style={{ width: '100%' }}
+                  onClick={() => {
+                    session.sendLoginWithPassword(passwordInput);
+                    setPasswordInput('');
+                  }}
+                >
+                  提交
+                </button>
+              </>
+            ) : (
+              <button
+                className="btn btn-primary"
+                onClick={session.dismissMessageBox}
+              >
+                确定
+              </button>
+            )}
           </div>
         </div>
       )}

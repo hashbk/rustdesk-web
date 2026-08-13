@@ -46,6 +46,7 @@ export interface RemoteSessionHook {
   clipboardSync: boolean;
   connect: (config: SessionConfig) => void;
   send2fa: (code: string) => void;
+  sendLoginWithPassword: (password: string) => void;
   close: () => void;
   sendMouse: (event: NonNullable<MessageT['mouseEvent']>) => void;
   sendKey: (event: NonNullable<MessageT['keyEvent']>) => void;
@@ -282,6 +283,10 @@ export function useRemoteSession(): RemoteSessionHook {
     void sessionRef.current?.send2fa(code);
   }, []);
 
+  const sendLoginWithPassword = useCallback((password: string) => {
+    void sessionRef.current?.sendLoginWithPassword(password);
+  }, []);
+
   const close = useCallback(() => {
     sessionRef.current?.close();
   }, []);
@@ -455,6 +460,7 @@ export function useRemoteSession(): RemoteSessionHook {
     clipboardSync,
     connect,
     send2fa,
+    sendLoginWithPassword,
     close,
     sendMouse,
     sendKey,
