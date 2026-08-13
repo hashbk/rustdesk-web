@@ -66,7 +66,9 @@ function parseHost(input: string): HostParts {
   }
   const colon = trimmed.lastIndexOf(':');
   if (colon > -1 && /^\d+$/.test(trimmed.slice(colon + 1))) {
-    return { host: trimmed.slice(0, colon), isIp: false, port: parseInt(trimmed.slice(colon + 1), 10) };
+    const host = trimmed.slice(0, colon);
+    const isIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.includes(':');
+    return { host, isIp, port: parseInt(trimmed.slice(colon + 1), 10) };
   }
   const isIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(trimmed);
   return { host: trimmed, isIp, port: null };

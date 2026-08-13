@@ -75,7 +75,7 @@ export class WsStream {
   }
 
   close(): void {
-    if (this.ws && this.state === 'open') {
+    if (this.ws) {
       this.state = 'closing';
       this.ws.close();
     }
