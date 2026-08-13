@@ -183,7 +183,7 @@ export function useRemoteSession(): RemoteSessionHook {
         cursorPosition: (pos) => {
           setCursorPosition({ x: pos.x ?? 0, y: pos.y ?? 0 });
         },
-        latency: (ms) => setLatency(ms),
+        latency: (info) => setLatency(info.delay),
         messageBox: (box) => {
           setMessageBox({
             msgType: box.msgType,
