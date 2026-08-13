@@ -15,8 +15,10 @@
  */
 
 import { BoolOption, boolToOption, type SessionOptionMessage } from '../protocol/session';
-import { ConnType, CodecPreference, ImageQuality, type SessionConfig } from '../protocol/config';
-import type { MessageT } from '../protos';
+import { ConnType, CodecPreference, ImageQuality, type SessionConfig, rendezvousWsUrl } from '../protocol/config';
+import type { MessageT, RendezvousMessageT } from '../protos';
+import { encodeRendezvous, decodeRendezvous } from '../protos';
+import { WsStream } from '../protocol/stream';
 import { BridgeContext } from './context';
 import { getCachedCodecAbilities } from './init';
 
@@ -774,13 +776,52 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
     },
 
     query_onlines: (value: string) => {
-      // Online-status query requires the rendezvous TCP protocol (port-1),
-      // not HTTP.  The TS bridge cannot implement this directly.
-      // Trigger the callback with all peers as offline so the UI doesn't hang.
       try {
         const ids = JSON.parse(value) as string[];
+        if (!Array.isArray(ids) || ids.length === 0) return;
+        const server = ctx.getServer();
+        const myId = ctx.getMyId();
+        const url = rendezvousWsUrl(server);
         const cb = (window as unknown as { onGlobalEvent?: (name: string, data: unknown) => void }).onGlobalEvent;
-        cb?.('callback_query_onlines', { onlines: [], offlines: ids.join(',') });
+        const allOffline = () => cb?.('callback_query_onlines', { onlines: '', offlines: ids.join(',') });
+
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const ws = new WsStream(url, {
+          onMessage: (data: Uint8Array) => {
+            clearTimeout(timer);
+            try {
+              const resp = decodeRendezvous(data);
+              if (resp.onlineResponse && resp.onlineResponse.states.length > 0) {
+                const states = resp.onlineResponse.states;
+                const onlines: string[] = [];
+                const offlines: string[] = [];
+                for (let i = 0; i < ids.length; i++) {
+                  const bit = 0x01 << (7 - (i % 8));
+                  if ((states[Math.floor(i / 8)] & bit) === bit) {
+                    onlines.push(ids[i]);
+                  } else {
+                    offlines.push(ids[i]);
+                  }
+                }
+                cb?.('callback_query_onlines', { onlines: onlines.join(','), offlines: offlines.join(',') });
+              } else {
+                allOffline();
+              }
+            } catch {
+              allOffline();
+            }
+            ws.close();
+          },
+          onError: () => { clearTimeout(timer); allOffline(); },
+          onClose: () => {},
+        });
+        ws.connect().then(() => {
+          const req: RendezvousMessageT = {
+            onlineRequest: { id: myId, peers: ids },
+          };
+          ws.send(encodeRendezvous(req));
+          timer = setTimeout(() => { ws.close(); allOffline(); }, 3000);
+        }).catch(() => allOffline());
       } catch {
         // ignore parse errors
       }
@@ -1021,7 +1062,9 @@ export function createGetRegistry(ctx: BridgeContext): GetRegistry {
     translate: (arg: string) => {
       const payload = parseJson<{ locale: string; text: string }>(arg);
       if (!payload || !payload.text) return '';
-      return translateText(payload.locale ?? 'en', payload.text);
+      const stored = ctx.getLocalOption('lang');
+      const locale = stored || payload.locale || 'en';
+      return translateText(locale, payload.text);
     },
 
     // ---- peers ----

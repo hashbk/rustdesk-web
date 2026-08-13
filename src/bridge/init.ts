@@ -38,6 +38,8 @@ export async function initBridge(
 
   if (options?.server) {
     ctx.setServer(options.server);
+  } else {
+    ctx.loadServerFromOptions();
   }
   if (options?.appName) {
     ctx.setAppName(options.appName);

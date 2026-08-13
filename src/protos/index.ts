@@ -97,6 +97,8 @@ export type RendezvousMessageT = {
   configureUpdate?: { serial?: number; rendezvousServers?: string[] };
   fetchLocalAddr?: { socketAddr?: Uint8Array; relayServer?: string; socketAddrV6?: Uint8Array };
   localAddr?: { socketAddr?: Uint8Array; localAddr?: Uint8Array; relayServer?: string; id?: string; version?: string; socketAddrV6?: Uint8Array };
+  onlineRequest?: { id: string; peers: string[] };
+  onlineResponse?: { states: Uint8Array };
 };
 
 export type DisplayInfoT = {

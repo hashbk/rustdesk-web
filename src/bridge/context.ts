@@ -241,6 +241,24 @@ export class BridgeContext {
     this.server = { ...server };
   }
 
+  /** Restore server config from persisted options (localStorage).
+   *  Called on bridge init when no explicit server is provided. */
+  loadServerFromOptions(): void {
+    const opts = this.getOptions();
+    const rendezvous = opts['custom-rendezvous-server'];
+    const relay = opts['relay-server'];
+    const api = opts['api-server'];
+    const key = opts['key'];
+    if (rendezvous) this.server.rendezvousHost = rendezvous;
+    if (relay) this.server.relayHost = relay;
+    if (api) {
+      this.server.apiHost = api;
+      if (api.startsWith('https://')) this.server.useWss = true;
+      else if (api.startsWith('http://')) this.server.useWss = false;
+    }
+    if (key) this.server.key = key;
+  }
+
   isUsingPublicServer(): boolean {
     return (
       this.server.rendezvousHost === DEFAULT_SERVER.rendezvousHost &&
