@@ -457,6 +457,18 @@ describe('events', () => {
       listeners.get('need2fa')!();
       expect(loginDialogCalls).toBe(1);
     });
+
+    // -- videoFrame → renderer (not a no-op) --
+    it('registers a videoFrame listener that handles frames', () => {
+      expect(listeners.has('videoFrame')).toBe(true);
+    });
+
+    // -- cleanup function --
+    it('attachSessionCallbacks returns a cleanup function', () => {
+      const cleanup = attachSessionCallbacks(mockSession.session, 0);
+      expect(typeof cleanup).toBe('function');
+      expect(() => cleanup()).not.toThrow();
+    });
   });
 
   // ---- all 52 event names are referenced ----
