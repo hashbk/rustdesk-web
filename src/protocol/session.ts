@@ -461,6 +461,7 @@ export class RemoteSession {
         this.emit('peerInfo', resp.loginResponse.peerInfo);
         this.setState('connected');
         this.log('connected after 2fa');
+        this.runSteadyState();
       }
     } catch (err) {
       this.handleError(err);
