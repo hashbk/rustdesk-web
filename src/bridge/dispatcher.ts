@@ -26,7 +26,7 @@ import type {
   GetRegistry,
   SessionAddSyncPayload,
   InputKeyPayload,
-  SendMousePayload,
+
   ReadRemoteDirPayload,
   SendFilesPayload,
   ElevateWithLogonPayload,
@@ -46,30 +46,67 @@ import type {
   TerminalClosePayload,
 } from './types';
 
-/** Map a control-key name (from input_key JSON) to the ControlKey enum value. */
+/** Map a control-key name (from input_key JSON) to the ControlKey enum value.
+ *  Includes both bare names (Alt, Control, ...) and VK_ prefixed names
+ *  (VK_MENU, VK_CONTROL, ...) used by Flutter's logicalKeyMap/physicalKeyMap. */
 const NAME_TO_CONTROL_KEY: Record<string, number> = {
-  Alt: 1,
-  Backspace: 2,
-  CapsLock: 3,
-  Control: 4,
-  Delete: 5,
-  DownArrow: 6,
-  End: 7,
-  Escape: 8,
+  Alt: 1, VK_MENU: 1, VK_ALT: 1,
+  Backspace: 2, VK_BACK: 2,
+  CapsLock: 3, VK_CAPITAL: 3,
+  Control: 4, VK_CONTROL: 4,
+  Delete: 5, VK_DELETE: 5,
+  DownArrow: 6, VK_DOWN: 6,
+  End: 7, VK_END: 7,
+  Escape: 8, VK_ESCAPE: 8,
   F1: 9, F2: 13, F3: 14, F4: 15, F5: 16, F6: 17, F7: 18, F8: 19, F9: 20, F10: 10, F11: 11, F12: 12,
-  Home: 21,
-  LeftArrow: 22,
-  Meta: 23,
-  PageDown: 25,
-  PageUp: 26,
-  Return: 27,
-  RightArrow: 28,
-  Shift: 29,
-  Space: 30,
-  Tab: 31,
-  UpArrow: 32,
-  Insert: 58,
-  NumLock: 63,
+  VK_F1: 9, VK_F2: 13, VK_F3: 14, VK_F4: 15, VK_F5: 16, VK_F6: 17, VK_F7: 18, VK_F8: 19, VK_F9: 20, VK_F10: 10, VK_F11: 11, VK_F12: 12,
+  Home: 21, VK_HOME: 21,
+  LeftArrow: 22, VK_LEFT: 22,
+  Meta: 23, VK_LWIN: 23, VK_RWIN: 23,
+  PageDown: 25, VK_NEXT: 25,
+  PageUp: 26, VK_PRIOR: 26,
+  Return: 27, VK_RETURN: 27, VK_ENTER: 27,
+  RightArrow: 28, VK_RIGHT: 28,
+  Shift: 29, VK_SHIFT: 29,
+  Space: 30, VK_SPACE: 30,
+  Tab: 31, VK_TAB: 31,
+  UpArrow: 32, VK_UP: 32,
+  Insert: 58, VK_INSERT: 58,
+  NumLock: 63, VK_NUMLOCK: 63,
+  Scroll: 62, VK_SCROLL: 62,
+  Pause: 46, VK_PAUSE: 46,
+  Snapshot: 47, VK_SNAPSHOT: 47,
+  Select: 48, VK_SELECT: 48,
+  Print: 49, VK_PRINT: 49,
+  Execute: 50, VK_EXECUTE: 50,
+  Help: 51, VK_HELP: 51,
+  Sleep: 52, VK_SLEEP: 52,
+  Cancel: 14, VK_CANCEL: 14,
+  Clear: 15, VK_CLEAR: 15,
+  Divide: 70, VK_DIVIDE: 70,
+  Multiply: 66, VK_MULTIPLY: 66,
+  Subtract: 68, VK_SUBTRACT: 68,
+  Add: 67, VK_ADD: 67,
+  Decimal: 69, VK_DECIMAL: 69,
+  Numpad0: 33, Numpad1: 34, Numpad2: 35, Numpad3: 36, Numpad4: 37,
+  Numpad5: 38, Numpad6: 39, Numpad7: 40, Numpad8: 41, Numpad9: 42,
+  VK_NUMPAD0: 33, VK_NUMPAD1: 34, VK_NUMPAD2: 35, VK_NUMPAD3: 36, VK_NUMPAD4: 37,
+  VK_NUMPAD5: 38, VK_NUMPAD6: 39, VK_NUMPAD7: 40, VK_NUMPAD8: 41, VK_NUMPAD9: 42,
+  Apps: 64,
+  RAlt: 65, RControl: 67, RShift: 68, RWin: 69,
+  CtrlAltDel: 71, LOCK_SCREEN: 72,
+};
+
+/** Map VK_ character key names to their character code. */
+const VK_NAME_TO_CHAR: Record<string, number> = {
+  VK_A: 97, VK_B: 98, VK_C: 99, VK_D: 100, VK_E: 101, VK_F: 102, VK_G: 103,
+  VK_H: 104, VK_I: 105, VK_J: 106, VK_K: 107, VK_L: 108, VK_M: 109, VK_N: 110,
+  VK_O: 111, VK_P: 112, VK_Q: 113, VK_R: 114, VK_S: 115, VK_T: 116, VK_U: 117,
+  VK_V: 118, VK_W: 119, VK_X: 120, VK_Y: 121, VK_Z: 122,
+  VK_0: 48, VK_1: 49, VK_2: 50, VK_3: 51, VK_4: 52, VK_5: 53, VK_6: 54, VK_7: 55, VK_8: 56, VK_9: 57,
+  VK_COMMA: 44, VK_SLASH: 47, VK_SEMICOLON: 59, VK_QUOTE: 39,
+  VK_LBRACKET: 91, VK_RBRACKET: 93, VK_BACKSLASH: 92,
+  VK_MINUS: 45, VK_PLUS: 61,
 };
 
 /**
@@ -311,21 +348,42 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
       if (truthy(payload.command)) mods.push(23);
       if (ck !== undefined) {
         session.sendKey({ down: truthy(payload.down), press: truthy(payload.press), controlKey: ck, modifiers: mods });
-      } else if (payload.name.length === 1) {
-        session.sendKey({ down: truthy(payload.down), press: truthy(payload.press), chr: payload.name.charCodeAt(0), modifiers: mods });
+      } else {
+        const charCode = VK_NAME_TO_CHAR[payload.name] ?? (payload.name.length === 1 ? payload.name.charCodeAt(0) : undefined);
+        if (charCode !== undefined) {
+          session.sendKey({ down: truthy(payload.down), press: truthy(payload.press), chr: charCode, modifiers: mods });
+        }
       }
     },
 
     send_mouse: (value: string) => {
       const session = ctx.getSession();
       if (!session) return;
-      const payload = parseJson<SendMousePayload>(value);
+      const payload = parseJson<Record<string, unknown>>(value);
       if (!payload) return;
+      let mask = 0;
+      const t = String(payload.type ?? '');
+      if (t === 'down') mask = 1;
+      else if (t === 'up') mask = 2;
+      else if (t === 'wheel') mask = 3;
+      else if (t === 'trackpad') mask = 4;
+      else if (t === 'move_relative') mask = 5;
+      const btn = String(payload.buttons ?? '');
+      if (btn === 'left') mask |= 1 << 3;
+      else if (btn === 'right') mask |= 2 << 3;
+      else if (btn === 'wheel') mask |= 4 << 3;
+      else if (btn === 'back') mask |= 8 << 3;
+      else if (btn === 'forward') mask |= 16 << 3;
+      const modifiers: number[] = [];
+      if (payload.alt) modifiers.push(1);
+      if (payload.ctrl) modifiers.push(4);
+      if (payload.shift) modifiers.push(29);
+      if (payload.command) modifiers.push(23);
       const event: NonNullable<MessageT['mouseEvent']> = {
-        mask: payload.mask ?? 0,
-        x: payload.x ?? 0,
-        y: payload.y ?? 0,
-        modifiers: payload.modifiers,
+        mask,
+        x: parseInt(String(payload.x ?? '0'), 10) || 0,
+        y: parseInt(String(payload.y ?? '0'), 10) || 0,
+        modifiers,
       };
       session.sendMouse(event);
     },
@@ -333,27 +391,19 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
     input_string: (value: string) => {
       const session = ctx.getSession();
       if (!session) return;
-      // Send each character as a key press.
-      for (const ch of value) {
-        session.sendKey({ press: true, chr: ch.charCodeAt(0), modifiers: [] });
-      }
+      session.sendKey({ press: true, seq: value, modifiers: [] });
     },
 
     send_chat: (value: string) => {
       const session = ctx.getSession();
       if (!session) return;
-      // Chat is sent as clipboard content (RustDesk wire protocol).
-      const content = new TextEncoder().encode(value);
-      session.sendClipboard(content);
+      session.sendMisc({ misc: { chatMessage: { text: value } } });
     },
 
     input_os_password: (value: string) => {
       const session = ctx.getSession();
       if (!session) return;
-      // Send the OS password as a string input.
-      for (const ch of value) {
-        session.sendKey({ press: true, chr: ch.charCodeAt(0), modifiers: [] });
-      }
+      session.sendKey({ press: true, seq: value, modifiers: [] });
     },
 
     enter_or_leave: (_value: string) => {
@@ -389,6 +439,7 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
     image_quality: (value: string) => {
       const session = ctx.getSession();
       if (!session) return;
+      ctx.setSessionOption('image_quality', value);
       if (/^\d+$/.test(value.trim())) {
         session.sendCustomImageQuality(parseInt(value, 10));
       } else {
@@ -415,7 +466,10 @@ export function createSetRegistry(ctx: BridgeContext): SetRegistry {
     change_prefer_codec: (value: string) => {
       const session = ctx.getSession();
       if (!session) return;
-      session.sendCodecPreference(parseCodecPreference(value));
+      // Dart does not pass the codec value; read the stored session option
+      // (set by the codec selection UI via option:session).
+      const stored = ctx.getSessionOption('codec-preference') || value;
+      session.sendCodecPreference(parseCodecPreference(stored));
     },
 
     // ---- special keys ----
@@ -990,6 +1044,8 @@ function toggleToOptionMessage(name: string, enabled: boolean): SessionOptionMes
     case 'follow-remote-cursor': return { followRemoteCursor: value };
     case 'follow-remote-window': return { followRemoteWindow: value };
     case 'show-my-cursor': return { showMyCursor: value };
+    case 'view-only':
+      return { disableKeyboard: value, disableClipboard: value };
     default: return null;
   }
 }

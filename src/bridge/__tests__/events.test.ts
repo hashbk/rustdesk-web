@@ -334,6 +334,23 @@ describe('events', () => {
       });
     });
 
+    it('emits switch_display with resolutions and original dimensions', () => {
+      listeners.get('switchDisplay')!({
+        display: 0,
+        x: 0, y: 0,
+        width: 1920, height: 1080,
+        cursor_embedded: false,
+        resolutions: [{ width: 1920, height: 1080 }, { width: 1280, height: 720 }],
+        original_resolution: { width: 3840, height: 2160 },
+      });
+      expect(events[0]).toMatchObject({
+        name: 'switch_display',
+        resolutions: JSON.stringify([{ width: 1920, height: 1080 }, { width: 1280, height: 720 }]),
+        original_width: '3840',
+        original_height: '2160',
+      });
+    });
+
     // -- fileResponse → file_dir --
     it('emits file_dir for fileResponse.dir', () => {
       listeners.get('fileResponse')!({
